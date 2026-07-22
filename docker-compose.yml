@@ -1,0 +1,39 @@
+services:
+  opa:
+    image: openpolicyagent/opa:latest-debug
+    command: run --server --addr=0.0.0.0:8181 --set=decision_logs/console=true
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./policies:/policies
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8181/health || exit 1"]
+      interval: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  ace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      OPA_URL: http://opa:8181
+      REDIS_URL: redis://redis:6379
+      ACE_METRICS_PORT: "9090"
+      ACE_METRICS_ENABLED: "true"
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on:
+      opa:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
