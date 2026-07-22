@@ -7,10 +7,17 @@ from ace.alerts.router import AlertChannel, AlertPayload
 
 class SQSChannel(AlertChannel):
     def __init__(self, queue_url: str | None = None, region: str = "ap-south-1"):
-        import boto3
-
         self.queue_url = queue_url or os.environ["SQS_ALERT_QUEUE_URL"]
-        self.client = boto3.client("sqs", region_name=region)
+        self.region = region
+        self._client = None
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+
+            self._client = boto3.client("sqs", region_name=self.region)
+        return self._client
 
     async def send(self, payload: AlertPayload) -> bool:
         message = {

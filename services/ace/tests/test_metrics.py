@@ -1,4 +1,3 @@
-import pytest
 from prometheus_client import REGISTRY
 
 from ace.metrics.prometheus import (

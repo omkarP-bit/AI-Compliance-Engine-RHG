@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
-from ace.api.websocket import ConnectionManager, manager, publish_event
+from ace.api.websocket import ConnectionManager, publish_event
 from ace.main import app
 
 

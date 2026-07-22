@@ -41,10 +41,9 @@ class AlertRouter:
             try:
                 await channel.send(payload)
             except Exception as e:
-                import structlog
+                import logging
 
-                structlog.get_logger().error(
+                logging.getLogger(__name__).error(
                     "alert_channel_failed",
-                    channel=type(channel).__name__,
-                    error=str(e),
+                    extra={"channel": type(channel).__name__, "error": str(e)},
                 )

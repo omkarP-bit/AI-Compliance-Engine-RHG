@@ -1,6 +1,5 @@
 import re
 import yaml
-from typing import Any
 from .base import BaseParser, NormalizedArtifact
 
 

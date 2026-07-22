@@ -1,4 +1,3 @@
-from typing import Any
 from .opa_client import OPAClient
 
 

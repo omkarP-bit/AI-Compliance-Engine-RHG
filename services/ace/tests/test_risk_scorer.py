@@ -1,4 +1,3 @@
-import pytest
 from ace.scoring.risk_scorer import score_findings, Severity
 
 CRITICAL_FINDING = {"rule_id": "CIS-K8S-5.2.4", "severity": "CRITICAL", "message": "Host network"}

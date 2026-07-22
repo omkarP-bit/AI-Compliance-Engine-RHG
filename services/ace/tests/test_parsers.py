@@ -1,4 +1,3 @@
-import pytest
 from ace.parsers.kubernetes import KubernetesParser
 from ace.parsers.terraform import TerraformParser
 from ace.parsers.dockerfile import DockerfileParser

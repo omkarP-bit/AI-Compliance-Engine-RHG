@@ -1,4 +1,3 @@
-import pytest
 from rhg.api.routes import _deduplicate_patches, _is_yaml, _infer_type
 
 

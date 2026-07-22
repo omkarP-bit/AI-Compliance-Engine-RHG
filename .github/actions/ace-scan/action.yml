@@ -24,7 +24,7 @@ runs:
   steps:
     - name: Install ace-compliance
       shell: bash
-      run: pip install ace-compliance --quiet
+      run: pip install ${{ github.action_path }}/../../../cli/ --quiet
 
     - name: Run ACE scan
       shell: bash

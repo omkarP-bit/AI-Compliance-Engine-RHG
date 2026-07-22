@@ -1,4 +1,3 @@
-import pytest
 from rhg.mutator.patch_engine import PatchEngine
 
 

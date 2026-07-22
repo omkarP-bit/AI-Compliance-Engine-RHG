@@ -1,5 +1,4 @@
-import pytest
-from rhg.gate.evaluator import GateEvaluator, GateDecision, BlockOnSeverity
+from rhg.gate.evaluator import GateEvaluator, GateDecision
 
 
 class TestGateEvaluator:

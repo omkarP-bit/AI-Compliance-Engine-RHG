@@ -108,32 +108,32 @@ class TestSQSChannel:
         channel = SQSChannel(
             queue_url="https://sqs.ap-south-1.amazonaws.com/123/ace-alerts"
         )
-        with patch.object(channel.client, "send_message") as mock_send:
-            import asyncio
+        mock_client = MagicMock()
+        channel._client = mock_client
+        import asyncio
 
-            asyncio.run(channel.send(SAMPLE_PAYLOAD))
-            mock_send.assert_called_once()
-            call_kwargs = mock_send.call_args[1]
-            assert (
-                call_kwargs["QueueUrl"]
-                == "https://sqs.ap-south-1.amazonaws.com/123/ace-alerts"
-            )
+        asyncio.run(channel.send(SAMPLE_PAYLOAD))
+        mock_client.send_message.assert_called_once()
+        call_kwargs = mock_client.send_message.call_args[1]
+        assert (
+            call_kwargs["QueueUrl"]
+            == "https://sqs.ap-south-1.amazonaws.com/123/ace-alerts"
+        )
 
     def test_message_body_includes_all_fields(self):
+        captured = {}
         channel = SQSChannel(
             queue_url="https://sqs.ap-south-1.amazonaws.com/123/ace-alerts"
         )
-        captured = {}
+        mock_client = MagicMock()
+        mock_client.send_message = MagicMock(
+            side_effect=lambda **kw: captured.update(kw)
+        )
+        channel._client = mock_client
+        import asyncio
 
-        with patch.object(
-            channel.client,
-            "send_message",
-            side_effect=lambda **kw: captured.update(kw),
-        ):
-            import asyncio
-
-            asyncio.run(channel.send(SAMPLE_PAYLOAD))
-            body = json.loads(captured["MessageBody"])
-            assert body["repo"] == "org/service"
-            assert body["decision"] == "BLOCK"
-            assert body["source"] == "ace-rhg"
+        asyncio.run(channel.send(SAMPLE_PAYLOAD))
+        body = json.loads(captured["MessageBody"])
+        assert body["repo"] == "org/service"
+        assert body["decision"] == "BLOCK"
+        assert body["source"] == "ace-rhg"

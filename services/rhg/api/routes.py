@@ -1,5 +1,4 @@
 import base64
-import uuid
 import os
 import json
 import copy
@@ -8,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 import httpx
 
-from rhg.gate.evaluator import GateEvaluator, GateDecision
+from rhg.gate.evaluator import GateEvaluator
 from rhg.mutator.patch_engine import PatchEngine
 
 router = APIRouter(prefix="/rhg", tags=["RHG"])
