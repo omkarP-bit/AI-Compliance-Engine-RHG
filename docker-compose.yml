@@ -7,9 +7,9 @@ services:
     volumes:
       - ./policies:/policies
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8181/health || exit 1"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8181/health"]
       interval: 5s
-      retries: 5
+      retries: 10
 
   redis:
     image: redis:7-alpine
