@@ -21,8 +21,9 @@ def mcp_tool(name: str, description: str):
 
 @mcp_tool("scan_infrastructure", "Scan a deployment artifact for compliance violations")
 async def scan_infrastructure(artifact_type: str, content: str) -> dict:
+    import os
     from ace.engine.opa_client import OPAClient
-    opa = OPAClient()
+    opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
     import yaml
     parsed = yaml.safe_load(content)
     findings = await opa.evaluate_deny(f"ace.cis.{artifact_type}", parsed)

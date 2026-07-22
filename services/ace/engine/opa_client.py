@@ -2,6 +2,22 @@ from typing import Any
 import httpx
 
 
+OPA_V1_SET_KEYS = {"allow", "deny", "patch"}
+
+
+def _unwrap_set(data: dict) -> list:
+    if isinstance(data, dict) and all(isinstance(k, str) for k in data):
+        items = []
+        for k in data:
+            try:
+                import json
+                items.append(json.loads(k))
+            except (json.JSONDecodeError, TypeError):
+                items.append(k)
+        return items
+    return data if isinstance(data, list) else []
+
+
 class OPAClient:
     def __init__(self, opa_url: str = "http://localhost:8181"):
         self.base = opa_url
@@ -15,11 +31,13 @@ class OPAClient:
 
     async def evaluate_deny(self, policy_path: str, input_data: dict) -> list[dict]:
         result = await self.evaluate(policy_path, input_data)
-        return result.get("deny", [])
+        raw = result.get("deny", [])
+        return _unwrap_set(raw) if isinstance(raw, dict) else raw
 
     async def evaluate_patch(self, policy_path: str, input_data: dict) -> list[dict]:
         result = await self.evaluate(policy_path, input_data)
-        return result.get("patch", [])
+        raw = result.get("patch", [])
+        return _unwrap_set(raw) if isinstance(raw, dict) else raw
 
     async def health(self) -> bool:
         try:

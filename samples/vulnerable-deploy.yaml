@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vulnerable-app
+  namespace: production
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: app
+          image: nginx:latest
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          ports:
+            - containerPort: 80
+        - name: sidecar
+          image: alpine:latest
+          securityContext:
+            privileged: true
+      initContainers:
+        - name: init-fix
+          image: busybox:latest
+          command: ["sh", "-c", "echo init"]
+          securityContext:
+            privileged: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: safe-pod
+  namespace: default
+spec:
+  containers:
+    - name: app
+      image: nginx:1.25
+      securityContext:
+        privileged: false
+        runAsUser: 1000
+        runAsNonRoot: true

@@ -1,4 +1,5 @@
 import base64
+import os
 import uuid
 import copy
 from fastapi import APIRouter, HTTPException
@@ -11,7 +12,7 @@ from ace.engine.opa_client import OPAClient
 from ace.scoring.risk_scorer import score_findings
 
 router = APIRouter(prefix="/ace", tags=["ACE"])
-opa = OPAClient()
+opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
 
 PARSERS = [KubernetesParser(), TerraformParser(), DockerfileParser(), HelmParser()]
 POLICY_MAP = {
