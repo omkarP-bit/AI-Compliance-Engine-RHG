@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e cli/
-          cd services/ace && pip install -r <(grep -v '^#' <<< "fastapi uvicorn httpx pytest pytest-asyncio pytest-cov langgraph langchain-groq pyyaml pydantic") && cd ../..
+          pip install fastapi uvicorn httpx pytest pytest-asyncio pytest-cov langgraph langchain-groq pyyaml pydantic sqlalchemy
 
       - name: Run ACE tests
         run: cd services/ace && python -m pytest tests/ -v --cov=. --cov-report=term-missing
