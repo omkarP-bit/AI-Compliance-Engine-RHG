@@ -1,0 +1,45 @@
+name: ACE Self-Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -e cli/
+          cd services/ace && pip install -r <(grep -v '^#' <<< "fastapi uvicorn httpx pytest pytest-asyncio pytest-cov langgraph langchain-groq pyyaml pydantic") && cd ../..
+
+      - name: Run ACE tests
+        run: cd services/ace && python -m pytest tests/ -v --cov=. --cov-report=term-missing
+
+      - name: Run RHG tests
+        run: cd services/rhg && python -m pytest tests/ -v
+
+      - name: Run CLI tests
+        run: cd cli && python -m pytest tests/ -v
+
+  ace-scan:
+    needs: test
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ACE Compliance Scan
+        uses: ./.github/actions/ace-scan
+        with:
+          artifacts-path: policies/
+          fail-on: HIGH
