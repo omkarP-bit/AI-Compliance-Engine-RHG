@@ -1,0 +1,11 @@
+pyproject.toml
+ace_compliance/__init__.py
+ace_compliance/__main__.py
+ace_compliance/cli.py
+ace_compliance.egg-info/PKG-INFO
+ace_compliance.egg-info/SOURCES.txt
+ace_compliance.egg-info/dependency_links.txt
+ace_compliance.egg-info/entry_points.txt
+ace_compliance.egg-info/requires.txt
+ace_compliance.egg-info/top_level.txt
+tests/test_cli.py

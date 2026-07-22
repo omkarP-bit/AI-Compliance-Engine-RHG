@@ -1,0 +1,45 @@
+name: ACE Compliance Scan
+description: Scan deployment artifacts with ACE+RHG before deploy
+
+inputs:
+  ace-url:
+    description: ACE service URL
+    required: false
+    default: http://localhost:8000
+  environment:
+    description: Target environment (production / staging / dev)
+    required: false
+    default: production
+  fail-on:
+    description: Minimum severity to fail the pipeline (CRITICAL / HIGH / MEDIUM / LOW)
+    required: false
+    default: HIGH
+  artifacts-path:
+    description: Path to scan (defaults to .)
+    required: false
+    default: .
+
+runs:
+  using: composite
+  steps:
+    - name: Install ace-compliance
+      shell: bash
+      run: pip install ace-compliance --quiet
+
+    - name: Run ACE scan
+      shell: bash
+      env:
+        ACE_URL: ${{ inputs.ace-url }}
+      run: |
+        ace scan ${{ inputs.artifacts-path }} \
+          --env ${{ inputs.environment }} \
+          --output json \
+          --fail-on ${{ inputs.fail-on }} \
+          | tee ace-report.json
+
+    - name: Upload scan report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ace-scan-report
+        path: ace-report.json
