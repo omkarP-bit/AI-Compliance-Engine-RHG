@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e cli/
-          pip install fastapi uvicorn httpx pytest pytest-asyncio pytest-cov langgraph langchain-groq pyyaml pydantic sqlalchemy
+          pip install fastapi uvicorn httpx pytest pytest-asyncio pytest-cov langgraph langchain-groq pyyaml pydantic sqlalchemy prometheus_client redis
 
       - name: Run ACE tests
         run: cd services/ace && python -m pytest tests/ -v --cov=. --cov-report=term-missing
