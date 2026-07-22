@@ -1,5 +1,6 @@
 import base64
 import uuid
+import copy
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from ace.parsers.kubernetes import KubernetesParser
@@ -42,6 +43,29 @@ class ScanResponse(BaseModel):
     findings: list[dict]
 
 
+class MutateRequest(BaseModel):
+    artifact_type: str
+    artifact: dict
+    finding_ids: list[str]
+
+
+class MutateResponse(BaseModel):
+    patches: list[dict]
+    patch_count: int
+    before_snapshot: dict
+
+
+class ScanAndMutateResponse(BaseModel):
+    scan_id: str
+    pipeline_id: str
+    risk_score: float
+    overall_severity: str
+    findings: list[dict]
+    patches: list[dict]
+    patch_count: int
+    mutations_applied: list[str]
+
+
 @router.post("/scan", response_model=ScanResponse)
 async def scan(request: ScanRequest):
     if not await opa.health():
@@ -67,4 +91,50 @@ async def scan(request: ScanRequest):
         risk_score=risk.score,
         overall_severity=risk.severity.value,
         findings=all_findings,
+    )
+
+
+@router.post("/mutate", response_model=MutateResponse)
+async def mutate(request: MutateRequest):
+    policy_path = POLICY_MAP.get(request.artifact_type, "ace/cis/kubernetes")
+    patches = await opa.evaluate_patch(policy_path, request.artifact)
+    return MutateResponse(
+        patches=patches,
+        patch_count=len(patches),
+        before_snapshot=copy.deepcopy(request.artifact),
+    )
+
+
+@router.post("/scan-and-mutate", response_model=ScanAndMutateResponse)
+async def scan_and_mutate(request: ScanRequest):
+    scan_result = await scan(request)
+    all_patches = []
+    all_mutations = []
+
+    for artifact in request.artifacts:
+        raw_content = base64.b64decode(artifact.content).decode()
+        parser = next((p for p in PARSERS if p.supports(artifact.name)), None)
+        if not parser:
+            continue
+        normalized = parser.parse(raw_content, artifact.name)
+        policy_path = POLICY_MAP.get(normalized.artifact_type, "ace/cis/kubernetes")
+        patches = await opa.evaluate_patch(policy_path, normalized.raw)
+        for p in patches:
+            p["artifact"] = artifact.name
+        all_patches.extend(patches)
+
+    for patch in all_patches:
+        all_mutations.append(
+            f"{patch.get('op', 'unknown')} {patch.get('path', '')} -> {patch.get('value', 'N/A')}"
+        )
+
+    return ScanAndMutateResponse(
+        scan_id=scan_result.scan_id,
+        pipeline_id=scan_result.pipeline_id,
+        risk_score=scan_result.risk_score,
+        overall_severity=scan_result.overall_severity,
+        findings=scan_result.findings,
+        patches=all_patches,
+        patch_count=len(all_patches),
+        mutations_applied=all_mutations,
     )
