@@ -97,13 +97,29 @@ async def scan(request: ScanRequest):
 
 @router.post("/mutate", response_model=MutateResponse)
 async def mutate(request: MutateRequest):
+    if request.artifact_type == "kubernetes":
+        artifact = _normalize_kubernetes(request.artifact)
+    else:
+        artifact = request.artifact
     policy_path = POLICY_MAP.get(request.artifact_type, "ace/cis/kubernetes")
-    patches = await opa.evaluate_patch(policy_path, request.artifact)
+    patches = await opa.evaluate_patch(policy_path, artifact)
     return MutateResponse(
         patches=patches,
         patch_count=len(patches),
         before_snapshot=copy.deepcopy(request.artifact),
     )
+
+
+def _normalize_kubernetes(raw: dict) -> dict:
+    kind = raw.get("kind", "")
+    spec = dict(raw.get("spec", {}))
+    if kind in ("Deployment", "DaemonSet", "StatefulSet", "CronJob", "Job"):
+        template_spec = spec.get("template", {}).get("spec", {})
+        spec["containers"] = template_spec.get("containers", [])
+        spec["initContainers"] = template_spec.get("initContainers", [])
+        spec["hostNetwork"] = template_spec.get("hostNetwork", False)
+        spec["hostPID"] = template_spec.get("hostPID", False)
+    return {"apiVersion": raw.get("apiVersion"), "kind": kind, "metadata": raw.get("metadata", {}), "spec": spec}
 
 
 @router.post("/scan-and-mutate", response_model=ScanAndMutateResponse)

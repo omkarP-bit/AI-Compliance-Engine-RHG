@@ -6,8 +6,9 @@ RUN curl -L -o /usr/local/bin/opa \
     https://github.com/open-policy-agent/opa/releases/download/v0.63.0/opa_linux_amd64_static \
     && chmod +x /usr/local/bin/opa
 
-COPY services/ace/ ./
+COPY services/ace/ ./ace/
 COPY policies/ ./policies/
+COPY infra/aws_lambda/handlers/ ./handlers/
 COPY infra/aws_lambda/start.sh ./
 
 RUN pip install --no-cache-dir \
@@ -15,5 +16,7 @@ RUN pip install --no-cache-dir \
     redis sqlalchemy asyncpg celery structlog prometheus-client \
     python-dotenv pyyaml boto3 && \
     chmod +x start.sh
+
+ENV PYTHONPATH=/var/task
 
 CMD ["handlers.ace_scan_handler.handler"]

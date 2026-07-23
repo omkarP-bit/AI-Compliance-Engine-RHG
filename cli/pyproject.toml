@@ -1,20 +1,46 @@
 [build-system]
-requires = ["setuptools>=68.0"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "ace-compliance"
 version = "0.1.0"
-description = "ACE+RHG CLI — scan infrastructure artifacts for compliance violations"
+description = "ACE+RHG CLI — scan infrastructure artifacts for compliance violations before they ship"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+authors = [
+    { name = "Omkar", email = "omkar@ace-rhg.dev" },
+]
+keywords = ["compliance", "security", "kubernetes", "terraform", "devsecops", "opa", "policy-as-code"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Quality Assurance",
+    "Topic :: System :: Systems Administration :: Authentication/Directory",
+]
 dependencies = [
     "click>=8.0",
     "httpx>=0.27",
     "pyyaml>=6.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/omkarP-bit/AI-Compliance-Engine-RHG"
+Repository = "https://github.com/omkarP-bit/AI-Compliance-Engine-RHG"
+Documentation = "https://github.com/omkarP-bit/AI-Compliance-Engine-RHG#readme"
+Changelog = "https://github.com/omkarP-bit/AI-Compliance-Engine-RHG/releases"
+
 [project.scripts]
 ace = "ace_compliance.cli:cli"
 
 [tool.setuptools.packages.find]
 include = ["ace_compliance*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

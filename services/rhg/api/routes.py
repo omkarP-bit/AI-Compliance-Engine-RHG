@@ -9,6 +9,7 @@ import httpx
 
 from rhg.gate.evaluator import GateEvaluator
 from rhg.mutator.patch_engine import PatchEngine
+import copy
 
 router = APIRouter(prefix="/rhg", tags=["RHG"])
 gate = GateEvaluator(
@@ -96,9 +97,15 @@ async def _run_mutation_pipeline(
         raw_content = base64.b64decode(artifact_input.content).decode()
         try:
             import yaml
-            artifact_dict = yaml.safe_load(raw_content)
+            docs = list(yaml.safe_load_all(raw_content))
+            artifact_dict = docs[0] if docs else {}
         except Exception:
-            artifact_dict = json.loads(raw_content)
+            try:
+                artifact_dict = json.loads(raw_content)
+            except Exception:
+                artifact_dict = {}
+
+        normalized = _normalize_kubernetes_artifact(copy.deepcopy(artifact_dict))
 
         artifact_patches = []
         for finding in patchable_findings:
@@ -107,7 +114,7 @@ async def _run_mutation_pipeline(
                     f"{ACE_URL}/ace/mutate",
                     json={
                         "artifact_type": artifact_input.type,
-                        "artifact": artifact_dict,
+                        "artifact": normalized,
                         "finding_ids": [finding.get("id", "")],
                     },
                 )
@@ -117,7 +124,7 @@ async def _run_mutation_pipeline(
 
         if artifact_patches:
             deduplicated = _deduplicate_patches(artifact_patches)
-            patched_dict, ops = PatchEngine.apply_patches(artifact_dict, deduplicated)
+            patched_dict, ops = PatchEngine.apply_patches(normalized, deduplicated)
             all_patches.extend(deduplicated)
             patched_content = yaml.dump(patched_dict) if _is_yaml(artifact_input.name) else json.dumps(patched_dict)
             patched_artifacts_output.append(PatchedArtifact(
@@ -170,6 +177,18 @@ async def _run_mutation_pipeline(
         "retry_count": retry_count,
         "final_scan_data": current_scan,
     }
+
+
+def _normalize_kubernetes_artifact(raw: dict) -> dict:
+    kind = raw.get("kind", "")
+    spec = dict(raw.get("spec", {}))
+    if kind in ("Deployment", "DaemonSet", "StatefulSet", "CronJob", "Job"):
+        template_spec = spec.get("template", {}).get("spec", {})
+        spec["containers"] = template_spec.get("containers", [])
+        spec["initContainers"] = template_spec.get("initContainers", [])
+        spec["hostNetwork"] = template_spec.get("hostNetwork", False)
+        spec["hostPID"] = template_spec.get("hostPID", False)
+    return {"apiVersion": raw.get("apiVersion"), "kind": kind, "metadata": raw.get("metadata", {}), "spec": spec}
 
 
 async def _call_ace_scan(client: httpx.AsyncClient, request: SubmitRequest) -> dict:

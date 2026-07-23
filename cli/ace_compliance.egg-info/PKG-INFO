@@ -1,8 +1,59 @@
 Metadata-Version: 2.4
 Name: ace-compliance
 Version: 0.1.0
-Summary: ACE+RHG CLI — scan infrastructure artifacts for compliance violations
+Summary: ACE+RHG CLI — scan infrastructure artifacts for compliance violations before they ship
+Author-email: Omkar <omkar@ace-rhg.dev>
+License-Expression: MIT
+Project-URL: Homepage, https://github.com/omkarP-bit/AI-Compliance-Engine-RHG
+Project-URL: Repository, https://github.com/omkarP-bit/AI-Compliance-Engine-RHG
+Project-URL: Documentation, https://github.com/omkarP-bit/AI-Compliance-Engine-RHG#readme
+Project-URL: Changelog, https://github.com/omkarP-bit/AI-Compliance-Engine-RHG/releases
+Keywords: compliance,security,kubernetes,terraform,devsecops,opa,policy-as-code
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: Intended Audience :: System Administrators
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Topic :: Security
+Classifier: Topic :: Software Development :: Quality Assurance
+Classifier: Topic :: System :: Systems Administration :: Authentication/Directory
 Requires-Python: >=3.12
+Description-Content-Type: text/markdown
 Requires-Dist: click>=8.0
 Requires-Dist: httpx>=0.27
 Requires-Dist: pyyaml>=6.0
+
+# ACE+RHG — AI Compliance Engine + Release Hardening Gate
+
+Production-grade DevSecOps platform that enforces security compliance automatically inside CI/CD pipelines — before any artifact ever touches production.
+
+## ace-compliance CLI
+
+```bash
+pip install ace-compliance
+
+# Scan a file
+ace scan deploy.yaml
+
+# Scan a directory, fail pipeline on HIGH+
+ace scan ./k8s/ ./terraform/ --env production --fail-on HIGH
+
+# JSON output for CI integration
+ace scan ./artifacts/ --output json
+```
+
+The CLI sends artifacts to the ACE service, evaluates them against CIS/NIST/ISO policy bundles via OPA, and returns structured findings with risk scores.
+
+## Quick Start
+
+```bash
+# Full local stack
+docker compose up -d
+ace scan samples/vulnerable-deploy.yaml --env staging
+```
+
+## Documentation
+
+- `CLAUDE.md` — full system concept, architecture, API contracts
+- `DEVELOPMENT.md` — build guide, phase map, test matrix, Lambda deployment
