@@ -37,7 +37,7 @@ class TestAlertRouter:
 
     async def test_continues_if_one_channel_fails(self):
         failing = AsyncMock()
-        failing.send = AsyncMock(side_effect=Exception("Slack is down"))
+        failing.send = AsyncMock(side_effect=ConnectionError("Slack is down"))
         working = AsyncMock()
         working.send = AsyncMock(return_value=True)
 

@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from ace.engine.opa_client import OPAClient
@@ -16,7 +17,7 @@ class TestOPAClient:
     async def test_health_returns_false_when_opa_down(self):
         client = OPAClient()
         with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
-            mock_get.side_effect = Exception("Connection refused")
+            mock_get.side_effect = httpx.ConnectError("Connection refused")
             assert await client.health() is False
 
     async def test_evaluate_deny_returns_findings(self):
@@ -63,5 +64,5 @@ class TestOPAClient:
     async def test_health_handles_connection_errors(self):
         client = OPAClient()
         with patch.object(client._client, "get", new_callable=AsyncMock) as mock_get:
-            mock_get.side_effect = ConnectionError("Failed to connect")
+            mock_get.side_effect = httpx.ConnectError("Failed to connect")
             assert await client.health() is False

@@ -42,7 +42,7 @@ class TestConnectionManager:
         ws_alive = MagicMock()
         ws_alive.send_json = AsyncMock()
         ws_dead = MagicMock()
-        ws_dead.send_json = AsyncMock(side_effect=Exception("gone"))
+        ws_dead.send_json = AsyncMock(side_effect=ConnectionError("gone"))
         self.cm.active.extend([ws_alive, ws_dead])
 
         await self.cm.broadcast({"event": "test"})
