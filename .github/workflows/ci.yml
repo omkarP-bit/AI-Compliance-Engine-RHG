@@ -1,0 +1,200 @@
+name: CI — Lint, Test, Build & Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to PyPI
+        required: true
+        default: false
+        type: boolean
+      environment:
+        description: PyPI target
+        required: true
+        default: testpypi
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+env:
+  PYTHON_VERSION: "3.12"
+  PROJECT_DIR: ace-rhg
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.PROJECT_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ env.PROJECT_DIR }}/services/ace/requirements.txt
+            ${{ env.PROJECT_DIR }}/services/rhg/requirements.txt
+            ${{ env.PROJECT_DIR }}/cli/pyproject.toml
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check services/ cli/ infra/
+
+  test:
+    name: Test
+    needs: lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.PROJECT_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            ${{ env.PROJECT_DIR }}/services/ace/requirements.txt
+            ${{ env.PROJECT_DIR }}/services/rhg/requirements.txt
+            ${{ env.PROJECT_DIR }}/cli/pyproject.toml
+
+      - name: Install ACE dependencies
+        run: pip install -r services/ace/requirements.txt
+
+      - name: Install RHG dependencies
+        run: pip install -r services/rhg/requirements.txt
+
+      - name: Install CLI
+        run: pip install -e cli/
+
+      - name: Install Ace service
+        run: pip install -e services/ace/
+
+      - name: Install Rhg service
+        run: pip install -e services/rhg/
+
+      - name: Run ACE tests with coverage
+        id: ace_tests
+        continue-on-error: true
+        run: |
+          python -m pytest services/ace/tests/ -v \
+            --cov=services/ace --cov-report=term-missing \
+            --cov-report=xml:coverage-ace.xml \
+            --junitxml=junit-ace.xml
+
+      - name: Run RHG tests
+        id: rhg_tests
+        continue-on-error: true
+        run: |
+          python -m pytest services/rhg/tests/ -v \
+            --junitxml=junit-rhg.xml
+
+      - name: Run CLI tests
+        id: cli_tests
+        continue-on-error: true
+        run: |
+          python -m pytest cli/tests/ -v \
+            --junitxml=junit-cli.xml
+
+      - name: Run Lambda tests
+        id: lambda_tests
+        continue-on-error: true
+        run: |
+          python -m pytest infra/aws_lambda/tests/ -v \
+            --junitxml=junit-lambda.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ${{ env.PROJECT_DIR }}/junit-*.xml
+
+      - name: Upload ACE coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-coverage
+          path: ${{ env.PROJECT_DIR }}/coverage-ace.xml
+
+      - name: Check test results
+        if: steps.ace_tests.outcome == 'failure' || steps.rhg_tests.outcome == 'failure' || steps.cli_tests.outcome == 'failure' || steps.lambda_tests.outcome == 'failure'
+        run: |
+          echo "❌ Some test suites failed:"
+          echo "  ACE:    ${{ steps.ace_tests.outcome }}"
+          echo "  RHG:    ${{ steps.rhg_tests.outcome }}"
+          echo "  CLI:    ${{ steps.cli_tests.outcome }}"
+          echo "  Lambda: ${{ steps.lambda_tests.outcome }}"
+          exit 1
+
+  build:
+    name: Build distribution packages
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.PROJECT_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install build twine
+
+      - name: Build CLI package
+        run: python -m build cli/
+
+      - name: Verify package
+        run: twine check cli/dist/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: ${{ env.PROJECT_DIR }}/cli/dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    if: >
+      github.event_name == 'release'
+      || startsWith(github.ref, 'refs/tags/v')
+      || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    defaults:
+      run:
+        working-directory: ${{ env.PROJECT_DIR }}
+    environment:
+      name: ${{ github.event.inputs.environment == 'pypi' || github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') && 'pypi' || 'testpypi' }}
+      url: ${{ (github.event.inputs.environment == 'pypi' || github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')) && 'https://pypi.org/p/ace-compliance' || 'https://test.pypi.org/p/ace-compliance' }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ (github.event.inputs.environment == 'pypi' || github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')) && '' || 'https://test.pypi.org/legacy/' }}
+          packages-dir: dist/

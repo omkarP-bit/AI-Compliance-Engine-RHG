@@ -74,7 +74,9 @@ class TestAlertDispatcher:
                 }
             ]
         }
-        with patch.object(AlertRouter, "dispatch", new_callable=AsyncMock):
-            with patch.dict(os.environ, {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test"}):
-                result = handler(event, MagicMock())
-                assert result["statusCode"] == 200
+        with (
+            patch.object(AlertRouter, "dispatch", new_callable=AsyncMock),
+            patch.dict(os.environ, {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/test"}),
+        ):
+            result = handler(event, MagicMock())
+            assert result["statusCode"] == 200

@@ -1,12 +1,12 @@
 from prometheus_client import REGISTRY
 
 from ace.metrics.prometheus import (
-    track_scan,
-    track_gate_decision,
-    track_mutation,
+    ACTIVE_SCANS,
     COMPLIANCE_SCORE,
     OPA_HEALTH,
-    ACTIVE_SCANS,
+    track_gate_decision,
+    track_mutation,
+    track_scan,
 )
 
 

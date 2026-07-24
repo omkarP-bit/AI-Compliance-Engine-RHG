@@ -1,9 +1,12 @@
+from typing import ClassVar
+
 import yaml
+
 from .base import BaseParser, NormalizedArtifact
 
 
 class KubernetesParser(BaseParser):
-    SUPPORTED_KINDS = {"Deployment", "DaemonSet", "StatefulSet", "Pod", "CronJob", "Job"}
+    SUPPORTED_KINDS: ClassVar[set[str]] = {"Deployment", "DaemonSet", "StatefulSet", "Pod", "CronJob", "Job"}
 
     def supports(self, filename: str) -> bool:
         return filename.endswith((".yaml", ".yml"))

@@ -1,4 +1,4 @@
-from ace.scoring.risk_scorer import score_findings, Severity
+from ace.scoring.risk_scorer import Severity, score_findings
 
 CRITICAL_FINDING = {"rule_id": "CIS-K8S-5.2.4", "severity": "CRITICAL", "message": "Host network"}
 HIGH_FINDING = {"rule_id": "CIS-K8S-5.2.1", "severity": "HIGH", "message": "Privileged container"}

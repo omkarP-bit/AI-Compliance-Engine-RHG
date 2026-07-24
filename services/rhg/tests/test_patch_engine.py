@@ -45,7 +45,7 @@ class TestPatchEngine:
     def test_original_artifact_not_mutated(self):
         original = {"spec": {"containers": [{"securityContext": {"privileged": True}}]}}
         patches = [{"op": "replace", "path": "/spec/containers/0/securityContext/privileged", "value": False}]
-        patched, _ = self.engine.apply_patches(original, patches)
+        _, _ = self.engine.apply_patches(original, patches)
         assert original["spec"]["containers"][0]["securityContext"]["privileged"] is True
 
     def test_diff_detects_changes(self):

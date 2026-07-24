@@ -1,4 +1,4 @@
-from rhg.api.routes import _deduplicate_patches, _is_yaml, _infer_type
+from rhg.api.routes import _deduplicate_patches, _infer_type, _is_yaml
 
 
 class TestDeduplicatePatches:

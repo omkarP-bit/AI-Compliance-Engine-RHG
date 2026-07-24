@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+
 from rhg.api.routes import router
 
 app = FastAPI(title="RHG — Release Hardening Gate", version="0.1.0")

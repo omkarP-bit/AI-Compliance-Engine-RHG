@@ -1,11 +1,11 @@
 import json
-import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from ace.alerts.router import AlertRouter, AlertPayload, AlertSeverity
+import pytest
+
 from ace.alerts.channels.slack import SlackChannel
 from ace.alerts.channels.sqs import SQSChannel
-
+from ace.alerts.router import AlertPayload, AlertRouter, AlertSeverity
 
 SAMPLE_PAYLOAD = AlertPayload(
     event_type="gate.decision",

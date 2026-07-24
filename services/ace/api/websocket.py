@@ -1,9 +1,8 @@
 import json
 import os
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import redis.asyncio as aioredis
-
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 ws_router = APIRouter()
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
@@ -25,7 +24,7 @@ class ConnectionManager:
         for ws in self.active:
             try:
                 await ws.send_json(message)
-            except Exception:
+            except (ConnectionError, OSError):
                 dead.append(ws)
         for ws in dead:
             self.active.remove(ws)

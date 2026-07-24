@@ -7,7 +7,6 @@ from pathlib import Path
 import click
 import httpx
 
-
 ACE_URL = os.environ.get("ACE_URL", "http://localhost:8000")
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 

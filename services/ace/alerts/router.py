@@ -40,7 +40,7 @@ class AlertRouter:
         for channel in self.channels:
             try:
                 await channel.send(payload)
-            except Exception as e:
+            except (ConnectionError, TimeoutError, OSError) as e:
                 import logging
 
                 logging.getLogger(__name__).error(

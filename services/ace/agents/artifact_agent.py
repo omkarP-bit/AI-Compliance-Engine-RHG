@@ -4,7 +4,7 @@ import re
 
 from langchain_groq import ChatGroq
 
-from ace.agents.base_agent import BaseAgent, AgentResult
+from ace.agents.base_agent import AgentResult, BaseAgent
 
 
 class ArtifactAgent(BaseAgent):

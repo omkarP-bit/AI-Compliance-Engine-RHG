@@ -1,6 +1,6 @@
 from typing import Any
-import httpx
 
+import httpx
 
 OPA_V1_SET_KEYS = {"allow", "deny", "patch"}
 
@@ -43,5 +43,5 @@ class OPAClient:
         try:
             r = await self._client.get(f"{self.base}/health")
             return r.status_code == 200
-        except Exception:
+        except (httpx.RequestError, httpx.HTTPStatusError):
             return False

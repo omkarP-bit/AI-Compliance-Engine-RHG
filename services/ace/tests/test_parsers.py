@@ -1,7 +1,7 @@
-from ace.parsers.kubernetes import KubernetesParser
-from ace.parsers.terraform import TerraformParser
 from ace.parsers.dockerfile import DockerfileParser
 from ace.parsers.helm import HelmParser
+from ace.parsers.kubernetes import KubernetesParser
+from ace.parsers.terraform import TerraformParser
 
 PRIVILEGED_DEPLOYMENT = """
 apiVersion: apps/v1

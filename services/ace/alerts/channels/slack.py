@@ -4,7 +4,6 @@ import httpx
 
 from ace.alerts.router import AlertChannel, AlertPayload
 
-
 SEVERITY_EMOJI = {
     "CRITICAL": ":red_circle:",
     "HIGH": ":large_yellow_circle:",

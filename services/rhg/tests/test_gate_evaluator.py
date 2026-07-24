@@ -1,4 +1,4 @@
-from rhg.gate.evaluator import GateEvaluator, GateDecision
+from rhg.gate.evaluator import GateDecision, GateEvaluator
 
 
 class TestGateEvaluator:

@@ -1,9 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from ace.agents.artifact_agent import ArtifactAgent
 from ace.agents.base_agent import AgentResult
-
 
 SAMPLE_FINDINGS = [
     {"rule_id": "CIS-K8S-5.2.1", "severity": "HIGH", "message": "Privileged container", "patchable": True}

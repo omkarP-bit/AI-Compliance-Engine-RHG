@@ -1,7 +1,9 @@
-import pytest
 import base64
-from httpx import AsyncClient, ASGITransport
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from ace.main import app
 
 VULN_YAML = base64.b64encode(b"""

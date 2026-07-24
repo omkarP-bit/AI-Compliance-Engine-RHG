@@ -1,15 +1,16 @@
 import base64
-import os
-import json
 import copy
-from typing import AsyncGenerator
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+import json
+import os
+from collections.abc import AsyncGenerator
+from typing import Annotated
+
 import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from rhg.gate.evaluator import GateEvaluator
 from rhg.mutator.patch_engine import PatchEngine
-import copy
 
 router = APIRouter(prefix="/rhg", tags=["RHG"])
 gate = GateEvaluator(
@@ -99,10 +100,10 @@ async def _run_mutation_pipeline(
             import yaml
             docs = list(yaml.safe_load_all(raw_content))
             artifact_dict = docs[0] if docs else {}
-        except Exception:
+        except (yaml.YAMLError, OSError):
             try:
                 artifact_dict = json.loads(raw_content)
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 artifact_dict = {}
 
         normalized = _normalize_kubernetes_artifact(copy.deepcopy(artifact_dict))
@@ -202,7 +203,7 @@ async def _call_ace_scan(client: httpx.AsyncClient, request: SubmitRequest) -> d
 
 
 @router.post("/submit", response_model=SubmitResponse)
-async def submit(request: SubmitRequest, ace_client: httpx.AsyncClient = Depends(get_ace_client)):
+async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient, Depends(get_ace_client)]) -> SubmitResponse:
     scan_data = await _call_ace_scan(ace_client, request)
 
     findings = scan_data.get("findings", [])

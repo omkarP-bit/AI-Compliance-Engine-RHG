@@ -1,5 +1,7 @@
 import re
+
 import yaml
+
 from .base import BaseParser, NormalizedArtifact
 
 

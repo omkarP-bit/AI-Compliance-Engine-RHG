@@ -1,10 +1,12 @@
-import pytest
 import base64
-import httpx
-from httpx import AsyncClient, ASGITransport
 from unittest.mock import AsyncMock
-from rhg.main import app
+
+import httpx
+import pytest
+from httpx import ASGITransport, AsyncClient
+
 from rhg.api.routes import get_ace_client
+from rhg.main import app
 
 VULN_YAML = base64.b64encode(b"""
 apiVersion: apps/v1

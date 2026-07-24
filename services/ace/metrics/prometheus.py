@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram, Gauge, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 SCANS_TOTAL = Counter(
     "ace_scans_total", "Total scans performed", ["environment", "outcome"]
