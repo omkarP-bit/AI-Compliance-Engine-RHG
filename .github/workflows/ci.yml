@@ -74,12 +74,6 @@ jobs:
       - name: Install CLI
         run: pip install -e cli/
 
-      - name: Install Ace service
-        run: pip install -e services/ace/
-
-      - name: Install Rhg service
-        run: pip install -e services/rhg/
-
       - name: Run ACE tests with coverage
         id: ace_tests
         continue-on-error: true
