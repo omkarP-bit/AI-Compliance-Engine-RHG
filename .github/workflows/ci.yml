@@ -24,15 +24,11 @@ on:
 
 env:
   PYTHON_VERSION: "3.12"
-  PROJECT_DIR: ace-rhg
 
 jobs:
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.PROJECT_DIR }}
     steps:
       - uses: actions/checkout@v4
 
@@ -42,9 +38,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            ${{ env.PROJECT_DIR }}/services/ace/requirements.txt
-            ${{ env.PROJECT_DIR }}/services/rhg/requirements.txt
-            ${{ env.PROJECT_DIR }}/cli/pyproject.toml
+            services/ace/requirements.txt
+            services/rhg/requirements.txt
+            cli/pyproject.toml
 
       - name: Install ruff
         run: pip install ruff
@@ -56,9 +52,6 @@ jobs:
     name: Test
     needs: lint
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.PROJECT_DIR }}
     steps:
       - uses: actions/checkout@v4
 
@@ -68,9 +61,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: |
-            ${{ env.PROJECT_DIR }}/services/ace/requirements.txt
-            ${{ env.PROJECT_DIR }}/services/rhg/requirements.txt
-            ${{ env.PROJECT_DIR }}/cli/pyproject.toml
+            services/ace/requirements.txt
+            services/rhg/requirements.txt
+            cli/pyproject.toml
 
       - name: Install ACE dependencies
         run: pip install -r services/ace/requirements.txt
@@ -122,19 +115,19 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: ${{ env.PROJECT_DIR }}/junit-*.xml
+          path: junit-*.xml
 
       - name: Upload ACE coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ace-coverage
-          path: ${{ env.PROJECT_DIR }}/coverage-ace.xml
+          path: coverage-ace.xml
 
       - name: Check test results
         if: steps.ace_tests.outcome == 'failure' || steps.rhg_tests.outcome == 'failure' || steps.cli_tests.outcome == 'failure' || steps.lambda_tests.outcome == 'failure'
         run: |
-          echo "❌ Some test suites failed:"
+          echo "Some test suites failed:"
           echo "  ACE:    ${{ steps.ace_tests.outcome }}"
           echo "  RHG:    ${{ steps.rhg_tests.outcome }}"
           echo "  CLI:    ${{ steps.cli_tests.outcome }}"
@@ -145,9 +138,6 @@ jobs:
     name: Build distribution packages
     needs: test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ${{ env.PROJECT_DIR }}
     steps:
       - uses: actions/checkout@v4
 
@@ -169,7 +159,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dist
-          path: ${{ env.PROJECT_DIR }}/cli/dist/
+          path: cli/dist/
 
   publish:
     name: Publish to PyPI
@@ -181,9 +171,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
-    defaults:
-      run:
-        working-directory: ${{ env.PROJECT_DIR }}
     environment:
       name: ${{ github.event.inputs.environment == 'pypi' || github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v') && 'pypi' || 'testpypi' }}
       url: ${{ (github.event.inputs.environment == 'pypi' || github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')) && 'https://pypi.org/p/ace-compliance' || 'https://test.pypi.org/p/ace-compliance' }}
