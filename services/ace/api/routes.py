@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from ace.engine.opa_client import OPAClient
 from ace.parsers.dockerfile import DockerfileParser
+from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
 from ace.parsers.kubernetes import KubernetesParser
 from ace.parsers.terraform import TerraformParser
@@ -16,12 +17,13 @@ from ace.scoring.risk_scorer import score_findings
 router = APIRouter(prefix="/ace", tags=["ACE"])
 opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
 
-PARSERS = [KubernetesParser(), TerraformParser(), DockerfileParser(), HelmParser()]
+PARSERS = [GitHubActionsParser(), KubernetesParser(), TerraformParser(), DockerfileParser(), HelmParser()]
 POLICY_MAP = {
     "kubernetes": "ace/cis/kubernetes",
     "terraform": "ace/cis/terraform",
     "dockerfile": "ace/cis/docker",
     "helm": "ace/cis/kubernetes",
+    "github_actions": "ace/gha/security",
 }
 
 

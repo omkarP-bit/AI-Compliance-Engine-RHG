@@ -1,4 +1,5 @@
 from ace.parsers.dockerfile import DockerfileParser
+from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
 from ace.parsers.kubernetes import KubernetesParser
 from ace.parsers.terraform import TerraformParser
@@ -17,6 +18,61 @@ spec:
           securityContext:
             privileged: true
             runAsUser: 0
+"""
+
+WRITE_ALL_WORKFLOW = """
+name: Deploy
+on: [push]
+permissions: write-all
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: some-org/risky-action@v2.1.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+"""
+
+INJECTION_WORKFLOW = """
+name: Comment handler
+on:
+  issue_comment:
+    types: [created]
+jobs:
+  handle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo comment
+        run: echo "${{ github.event.comment.body }}"
+"""
+
+SAFE_WORKFLOW = """
+name: CI
+on: [push]
+permissions:
+  contents: read
+  checks: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9f
+"""
+
+PULL_REQUEST_TARGET_WORKFLOW = """
+name: PR Labeler
+on:
+  pull_request_target:
+    types: [opened]
+permissions:
+  contents: read
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v4
 """
 
 SAFE_DEPLOYMENT = """
@@ -39,6 +95,52 @@ spec:
               cpu: "500m"
               memory: "256Mi"
 """
+
+
+class TestGitHubActionsParser:
+    def setup_method(self):
+        self.parser = GitHubActionsParser()
+
+    def test_supports_workflow_path(self):
+        assert self.parser.supports(".github/workflows/deploy.yml") is True
+        assert self.parser.supports(".github/workflows/ci.yaml") is True
+        assert self.parser.supports("workflows/deploy.yml") is True
+
+    def test_does_not_support_plain_yaml(self):
+        assert self.parser.supports("deployment.yaml") is False
+        assert self.parser.supports("values.yaml") is False
+
+    def test_parses_write_all_permissions(self):
+        artifact = self.parser.parse(WRITE_ALL_WORKFLOW, ".github/workflows/deploy.yml")
+        assert artifact.artifact_type == "github_actions"
+        assert artifact.raw["permissions"] == "write-all"
+
+    def test_detects_pull_request_target_trigger(self):
+        artifact = self.parser.parse(PULL_REQUEST_TARGET_WORKFLOW, ".github/workflows/pr.yml")
+        assert artifact.metadata["has_pull_request_target"] is True
+
+    def test_extracts_action_refs_with_sha_pin_status(self):
+        artifact = self.parser.parse(SAFE_WORKFLOW, ".github/workflows/ci.yml")
+        refs = artifact.metadata["uses_actions"]
+        assert all(r["sha_pinned"] for r in refs), "All actions in safe workflow should be SHA-pinned"
+
+    def test_detects_mutable_tag_pin(self):
+        artifact = self.parser.parse(WRITE_ALL_WORKFLOW, ".github/workflows/deploy.yml")
+        refs = artifact.metadata["uses_actions"]
+        risky = [r for r in refs if r["action"] == "some-org/risky-action"]
+        assert len(risky) == 1
+        assert risky[0]["sha_pinned"] is False
+        assert risky[0]["pin"] == "v2.1.0"
+
+    def test_detects_script_injection_pattern(self):
+        artifact = self.parser.parse(INJECTION_WORKFLOW, ".github/workflows/comment.yml")
+        run_steps = artifact.metadata["jobs"][0]["run_steps"]
+        assert any("github.event.comment.body" in s for s in run_steps)
+
+    def test_safe_workflow_has_correct_metadata(self):
+        artifact = self.parser.parse(SAFE_WORKFLOW, ".github/workflows/ci.yml")
+        assert artifact.metadata["top_level_perms"]["contents"] == "read"
+        assert artifact.metadata["has_pull_request_target"] is False
 
 
 class TestKubernetesParser:
