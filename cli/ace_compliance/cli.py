@@ -24,6 +24,8 @@ def cli():
 @click.option("--ace-url", envvar="ACE_URL", default=ACE_URL, help="ACE service URL")
 def scan(paths, env, output, fail_on, ace_url):
     """Scan one or more artifact files for compliance violations."""
+    if not paths:
+        paths = ("." ,)
     asyncio.run(_scan(list(paths), env, output, fail_on, ace_url))
 
 
@@ -38,6 +40,8 @@ async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: 
             for f in p.rglob("*.yml"):
                 artifacts.append(_make_artifact(f))
             for f in p.rglob("*.tf"):
+                artifacts.append(_make_artifact(f))
+            for f in p.rglob("Dockerfile*"):
                 artifacts.append(_make_artifact(f))
         else:
             artifacts.append(_make_artifact(p))
@@ -70,11 +74,19 @@ async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: 
 
 
 def _make_artifact(path: Path) -> dict:
+    name = path.name
     ext = path.suffix
-    artifact_type = "kubernetes" if ext in (".yaml", ".yml") else "terraform"
+    if name == "Dockerfile" or name.endswith(".dockerfile"):
+        artifact_type = "dockerfile"
+    elif ext in (".yaml", ".yml"):
+        artifact_type = "kubernetes"
+    elif ext in (".tf", ".tf.json"):
+        artifact_type = "terraform"
+    else:
+        artifact_type = "kubernetes"
     return {
         "type": artifact_type,
-        "name": path.name,
+        "name": name,
         "content": base64.b64encode(path.read_bytes()).decode(),
     }
 
