@@ -1,6 +1,6 @@
 services:
   opa:
-    image: openpolicyagent/opa:latest-debug
+    image: openpolicyagent/opa:0.63.0
     command: run --server --addr=0.0.0.0:8181 --set=decision_logs.console=true /policies
     ports:
       - "8181:8181"
@@ -35,5 +35,25 @@ services:
     depends_on:
       opa:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  rhg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      ACE_URL: http://ace:8000
+      BLOCK_ON_SEVERITY: HIGH
+      MAX_MUTATION_RETRIES: "3"
+      REDIS_URL: redis://redis:6379
+      DASHBOARD_URL: http://dashboard:3000
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      SQS_ALERT_QUEUE_URL: https://sqs.ap-south-1.amazonaws.com/123/ace-alerts.fifo
+    depends_on:
+      ace:
+        condition: service_started
       redis:
         condition: service_healthy

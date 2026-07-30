@@ -1,0 +1,12 @@
+infra/
+cli/ace_compliance.egg-info/
+cli/dist/
+cli/__pycache__/
+dist/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+LAMBDA_DEPLOYMENT.md
+Makefile

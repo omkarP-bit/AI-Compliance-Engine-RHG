@@ -6,9 +6,11 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
+from ace.alerts.router import AlertPayload, AlertRouter, AlertSeverity
+from ace.metrics.prometheus import track_gate_decision
 from rhg.gate.evaluator import GateEvaluator
 from rhg.mutator.patch_engine import PatchEngine
 
@@ -18,6 +20,11 @@ gate = GateEvaluator(
     max_mutation_retries=int(os.environ.get("MAX_MUTATION_RETRIES", "3")),
 )
 ACE_URL = os.environ.get("ACE_URL", "http://localhost:8000")
+alert_router = AlertRouter()
+
+
+def _dispatch_alert(background_tasks: BackgroundTasks, payload: AlertPayload) -> None:
+    background_tasks.add_task(alert_router.dispatch, payload)
 
 
 class ArtifactInput(BaseModel):
@@ -203,7 +210,7 @@ async def _call_ace_scan(client: httpx.AsyncClient, request: SubmitRequest) -> d
 
 
 @router.post("/submit", response_model=SubmitResponse)
-async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient, Depends(get_ace_client)]) -> SubmitResponse:
+async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient, Depends(get_ace_client)], background_tasks: BackgroundTasks) -> SubmitResponse:
     scan_data = await _call_ace_scan(ace_client, request)
 
     findings = scan_data.get("findings", [])
@@ -239,6 +246,21 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
         f"{os.environ.get('DASHBOARD_URL', 'http://localhost:3000')}"
         f"/report/{scan_data.get('scan_id', '')}"
     )
+
+    track_gate_decision(gate_result.decision.value, request.environment)
+    _dispatch_alert(background_tasks, AlertPayload(
+        event_type="gate.decision",
+        pipeline_id=request.pipeline_id,
+        repo=request.repo,
+        environment=request.environment,
+        severity=AlertSeverity[overall_severity],
+        findings_count=len(all_findings_post),
+        blocking_rules=[f.get("rule_id", "?") for f in gate_result.blocking_findings],
+        decision=gate_result.decision.value,
+        report_url=report_url,
+        mutation_count=total_mutations,
+        escalation_reason="; ".join(f.get("message", "") for f in gate_result.blocking_findings),
+    ))
 
     return SubmitResponse(
         decision=gate_result.decision.value,

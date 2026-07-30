@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 import httpx
 
-ACE_URL = os.environ.get("ACE_URL", "http://localhost:8000")
+ACE_URL = os.environ.get("ACE_URL")
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 
 
@@ -21,7 +21,7 @@ def cli():
 @click.option("--env", default="production", help="Target environment")
 @click.option("--output", type=click.Choice(["text", "json"]), default="text")
 @click.option("--fail-on", type=click.Choice(["CRITICAL", "HIGH", "MEDIUM", "LOW"]), default="HIGH")
-@click.option("--ace-url", envvar="ACE_URL", default=ACE_URL, help="ACE service URL")
+@click.option("--ace-url", envvar="ACE_URL", default=None, help="ACE service URL (required, or set ACE_URL env var)")
 def scan(paths, env, output, fail_on, ace_url):
     """Scan one or more artifact files for compliance violations."""
     if not paths:
@@ -30,6 +30,12 @@ def scan(paths, env, output, fail_on, ace_url):
 
 
 async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: str):
+    if not ace_url:
+        raise click.UsageError(
+            "ACE service URL required. Set --ace-url or ACE_URL env var.\n"
+            "  export ACE_URL=https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com\n"
+            "  ace scan --ace-url $ACE_URL ."
+        )
     artifacts = []
 
     for path_str in paths:
@@ -51,17 +57,26 @@ async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: 
         raise SystemExit(1)
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{ace_url}/ace/scan",
-            json={
-                "pipeline_id": "cli-scan",
-                "environment": env,
-                "artifacts": artifacts,
-            },
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        result = resp.json()
+        try:
+            resp = await client.post(
+                f"{ace_url}/ace/scan",
+                json={
+                    "pipeline_id": "cli-scan",
+                    "environment": env,
+                    "artifacts": artifacts,
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            click.echo(f"Error: Cannot connect to ACE service at {ace_url}", err=True)
+            click.echo("", err=True)
+            click.echo("  Make sure the ACE service is running:", err=True)
+            click.echo("    docker-compose up -d          # start full stack", err=True)
+            click.echo(f"    curl {ace_url}/health         # verify it's up", err=True)
+            click.echo("", err=True)
+            raise SystemExit(1) from e
 
     if output == "json":
         click.echo(json.dumps(result, indent=2))

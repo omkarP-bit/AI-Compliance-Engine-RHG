@@ -1,12 +1,15 @@
 import base64
 import copy
 import os
+import time
 import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ace.api.websocket import publish_event
 from ace.engine.opa_client import OPAClient
+from ace.metrics.prometheus import track_scan
 from ace.parsers.dockerfile import DockerfileParser
 from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
@@ -24,6 +27,7 @@ POLICY_MAP = {
     "dockerfile": "ace/cis/docker",
     "helm": "ace/cis/kubernetes",
     "github_actions": "ace/gha/security",
+    "nist": "ace/nist",
 }
 
 
@@ -58,6 +62,7 @@ class MutateResponse(BaseModel):
     patches: list[dict]
     patch_count: int
     before_snapshot: dict
+    after_snapshot: dict
 
 
 class ScanAndMutateResponse(BaseModel):
@@ -69,10 +74,12 @@ class ScanAndMutateResponse(BaseModel):
     patches: list[dict]
     patch_count: int
     mutations_applied: list[str]
+    before_snapshot: list[dict]
 
 
 @router.post("/scan", response_model=ScanResponse)
 async def scan(request: ScanRequest):
+    start = time.time()
     if not await opa.health():
         raise HTTPException(503, "OPA policy engine unavailable")
 
@@ -90,6 +97,17 @@ async def scan(request: ScanRequest):
         all_findings.extend(findings)
 
     risk = score_findings(all_findings, request.environment)
+    duration = time.time() - start
+    outcome = "block" if risk.severity.value in ("CRITICAL", "HIGH") else "allow"
+    track_scan(request.environment, outcome, duration, all_findings)
+    await publish_event("scan.completed", {
+        "scan_id": "",
+        "pipeline_id": request.pipeline_id,
+        "environment": request.environment,
+        "risk_score": risk.score,
+        "overall_severity": risk.severity.value,
+        "finding_count": len(all_findings),
+    })
     return ScanResponse(
         scan_id=str(uuid.uuid4()),
         pipeline_id=request.pipeline_id,
@@ -107,10 +125,16 @@ async def mutate(request: MutateRequest):
         artifact = request.artifact
     policy_path = POLICY_MAP.get(request.artifact_type, "ace/cis/kubernetes")
     patches = await opa.evaluate_patch(policy_path, artifact)
+    await publish_event("mutation.applied", {
+        "artifact": request.artifact_type,
+        "patch_count": len(patches),
+        "finding_ids": request.finding_ids,
+    })
     return MutateResponse(
         patches=patches,
         patch_count=len(patches),
         before_snapshot=copy.deepcopy(request.artifact),
+        after_snapshot=artifact,
     )
 
 
@@ -128,9 +152,11 @@ def _normalize_kubernetes(raw: dict) -> dict:
 
 @router.post("/scan-and-mutate", response_model=ScanAndMutateResponse)
 async def scan_and_mutate(request: ScanRequest):
+    start = time.time()
     scan_result = await scan(request)
     all_patches = []
     all_mutations = []
+    before_snapshot = [a.model_dump() for a in request.artifacts]
 
     for artifact in request.artifacts:
         raw_content = base64.b64decode(artifact.content).decode()
@@ -149,6 +175,21 @@ async def scan_and_mutate(request: ScanRequest):
             f"{patch.get('op', 'unknown')} {patch.get('path', '')} -> {patch.get('value', 'N/A')}"
         )
 
+    duration = time.time() - start
+    track_scan(request.environment, "patched", duration, scan_result.findings)
+    await publish_event("scan.completed", {
+        "scan_id": scan_result.scan_id,
+        "pipeline_id": scan_result.pipeline_id,
+        "environment": request.environment,
+        "risk_score": scan_result.risk_score,
+        "overall_severity": scan_result.overall_severity,
+        "finding_count": len(scan_result.findings),
+    })
+    await publish_event("mutation.applied", {
+        "patch_count": len(all_patches),
+        "mutations_applied": len(all_mutations),
+    })
+
     return ScanAndMutateResponse(
         scan_id=scan_result.scan_id,
         pipeline_id=scan_result.pipeline_id,
@@ -158,4 +199,5 @@ async def scan_and_mutate(request: ScanRequest):
         patches=all_patches,
         patch_count=len(all_patches),
         mutations_applied=all_mutations,
+        before_snapshot=before_snapshot,
     )
