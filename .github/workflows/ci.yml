@@ -97,30 +97,30 @@ jobs:
         continue-on-error: true
         run: |
           python -m pytest cli/tests/ -v \
-            --junitxml=junit-cli.xml
+             --junitxml=junit-cli.xml
 
-       - name: Upload test results
-         if: always()
-         uses: actions/upload-artifact@v4
-         with:
-           name: test-results
-           path: junit-*.xml
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: junit-*.xml
 
-       - name: Upload ACE coverage
-         if: always()
-         uses: actions/upload-artifact@v4
-         with:
-           name: ace-coverage
-           path: coverage-ace.xml
+      - name: Upload ACE coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ace-coverage
+          path: coverage-ace.xml
 
-       - name: Check test results
-         if: steps.ace_tests.outcome == 'failure' || steps.rhg_tests.outcome == 'failure' || steps.cli_tests.outcome == 'failure'
-         run: |
-           echo "Some test suites failed:"
-           echo "  ACE:    ${{ steps.ace_tests.outcome }}"
-           echo "  RHG:    ${{ steps.rhg_tests.outcome }}"
-           echo "  CLI:    ${{ steps.cli_tests.outcome }}"
-           exit 1
+      - name: Check test results
+        if: steps.ace_tests.outcome == 'failure' || steps.rhg_tests.outcome == 'failure' || steps.cli_tests.outcome == 'failure'
+        run: |
+          echo "Some test suites failed:"
+          echo "  ACE:    ${{ steps.ace_tests.outcome }}"
+          echo "  RHG:    ${{ steps.rhg_tests.outcome }}"
+          echo "  CLI:    ${{ steps.cli_tests.outcome }}"
+          exit 1
 
   build:
     name: Build distribution packages
