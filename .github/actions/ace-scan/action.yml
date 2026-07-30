@@ -5,7 +5,7 @@ inputs:
   ace-url:
     description: ACE service URL
     required: false
-    default: http://localhost:8000
+    default: ""
   environment:
     description: Target environment (production / staging / dev)
     required: false
