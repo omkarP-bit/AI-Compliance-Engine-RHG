@@ -8,7 +8,10 @@ class TerraformParser(BaseParser):
         return filename.endswith((".tf", ".tf.json", "tfplan.json"))
 
     def parse(self, content: str, name: str) -> NormalizedArtifact:
-        raw = json.loads(content)
+        try:
+            raw = json.loads(content)
+        except json.JSONDecodeError:
+            raw = {"_raw_hcl": content, "resource_changes": []}
         resources = self._extract_resources(raw)
         return NormalizedArtifact(
             artifact_type="terraform",

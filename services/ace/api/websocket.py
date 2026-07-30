@@ -53,7 +53,10 @@ async def events(websocket: WebSocket):
 
 
 async def publish_event(event_type: str, payload: dict):
-    redis = aioredis.from_url(REDIS_URL)
-    event = {"event_type": event_type, **payload}
-    await redis.publish("ace:events", json.dumps(event))
-    await redis.aclose()
+    try:
+        redis = aioredis.from_url(REDIS_URL)
+        event = {"event_type": event_type, **payload}
+        await redis.publish("ace:events", json.dumps(event))
+        await redis.aclose()
+    except Exception:
+        pass

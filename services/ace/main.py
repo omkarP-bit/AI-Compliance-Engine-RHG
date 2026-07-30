@@ -18,7 +18,10 @@ async def health():
 @app.on_event("startup")
 async def startup():
     if os.environ.get("ACE_METRICS_ENABLED", "true").lower() == "true":
-        from ace.metrics.prometheus import start_metrics_server
+        try:
+            from ace.metrics.prometheus import start_metrics_server
 
-        port = int(os.environ.get("ACE_METRICS_PORT", "9090"))
-        start_metrics_server(port)
+            port = int(os.environ.get("ACE_METRICS_PORT", "9090"))
+            start_metrics_server(port)
+        except Exception:
+            pass

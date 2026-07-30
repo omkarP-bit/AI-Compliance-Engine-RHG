@@ -52,13 +52,13 @@ A production-grade DevSecOps platform that enforces security compliance inside C
 
 <br/>
 
-[Overview](#-overview) · [How it works](#-how-it-works) · [Quick start](#-quick-start) · [Supported artifacts](#-supported-artifacts) · [Compliance standards](#-compliance-standards) · [Tech stack](#-tech-stack) · [Phases](#-build-phases) · [Contributing](#-contributing)
+[Overview](#-overview) · [Quick start](#-quick-start) · [CLI reference](#-cli-reference) · [Cloud deployment](#-cloud-deployment) · [Supported artifacts](#-supported-artifacts) · [Compliance standards](#-compliance-standards) · [Tech stack](#-tech-stack) · [Contributing](#-contributing)
 
 </div>
 
 ---
 
-## 🛡️ Overview
+## Overview
 
 Modern engineering teams ship fast — but speed creates blind spots. Misconfigured Kubernetes pods, over-permissive IAM roles, secrets in environment variables, and container images with critical CVEs routinely make it to production because traditional compliance checks happen *after* deployment.
 
@@ -69,179 +69,215 @@ Every time a developer pushes code, the system submits all deployment artifacts 
 - **ACE (AI Compliance Engine)** — scans artifacts using OPA/Rego policy bundles against CIS, NIST, and ISO standards, then enriches findings with a LangGraph multi-agent system that reasons about context, cross-artifact risk, and CVE data.
 - **RHG (Release Hardening Gate)** — acts as the enforcement layer, deciding whether a release proceeds. For patchable violations, it invokes OPA's mutation engine to auto-fix the artifact and re-scan. For unresolvable findings, it blocks the pipeline and routes to a human review queue.
 
-Everything — every scan, finding, mutation, agent action, and gate decision — is visible in a Grafana-based observability dashboard and delivered as real-time Slack alerts.
-
 ```
 git push  →  CI/CD  →  RHG  →  ACE (OPA + Agents)  →  ALLOW / PATCH / BLOCK
-                                        ↓
-                              Grafana dashboard + Slack alerts
 ```
 
 ---
 
-## ✨ Key features
+## Quick start
 
-| Feature | Description |
-|---|---|
-| **OPA-first policy engine** | All rules live in version-controlled Rego bundles — testable, auditable, swappable |
-| **Self-healing artifacts** | OPA mutation emits JSON Patch (RFC 6902) to auto-fix violations without human intervention |
-| **Agentic intelligence** | LangGraph agents handle what rules can't — contextual reasoning, CVE enrichment, drift detection |
-| **MCP tool orchestration** | Agents call tools via Model Context Protocol — OPA, kubectl, Trivy, AWS APIs, all unified |
-| **Human-in-the-loop** | Escalated decisions land in a React review queue — not buried in logs |
-| **Real-time alerts** | Slack Block Kit messages + SQS queue for durable delivery to downstream consumers |
-| **Framework-agnostic** | HTTP service + CLI means any language (Python, Node, Go) integrates via one CI step |
-| **Lambda-native** | Full serverless deployment via AWS Lambda + API Gateway — zero infrastructure to manage for web users |
-| **Packageable** | Designed for distribution as `pip install ace-compliance` and `npm install ace-compliance` |
+### Option 1: Cloud (recommended — zero setup)
 
----
-
-## ⚙️ How it works
-
-### The pipeline gate
-
-```
-Developer commit
-      │
-      ▼
-CI/CD pipeline (GitHub Actions / GitLab / Jenkins)
-      │
-      ▼
-Artifact generation
-(Kubernetes YAML · Terraform · Helm · Dockerfile)
-      │
-      ▼
-┌─────────────────────────────────────────────────┐
-│           Release Hardening Gate (RHG)          │
-│                                                 │
-│  ┌─────────────┐   scan   ┌──────────────────┐  │
-│  │  Artifact   │ ───────► │  AI Compliance   │  │
-│  │  receiver   │ ◄─────── │  Engine (ACE)    │  │
-│  └─────────────┘ findings │                  │  │
-│         │                 │  OPA rule engine  │  │
-│         ▼                 │  LangGraph agents │  │
-│  Gate policy eval         │  Risk scorer      │  │
-│         │                 └──────────────────┘  │
-│    ┌────┴─────┐                                  │
-│  patchable  unresolvable                         │
-│    │              │                              │
-│    ▼              ▼                              │
-│  OPA mutate  Human review                       │
-│  + re-scan   queue                              │
-│    │                                             │
-│  ALLOW ──────────────────────────────────────►  │
-│  BLOCK (+ report) ───────────────────────────►  │
-└─────────────────────────────────────────────────┘
-      │
-      ▼
-Prometheus + Grafana + Slack alerts
-```
-
-### OPA mutation (self-healing)
-
-When a violation is found and flagged as patchable, OPA emits a JSON Patch alongside the denial:
-
-```json
-{
-  "deny": ["CIS-K8S-5.2.1: Privileged container detected"],
-  "patch": [
-    { "op": "replace", "path": "/spec/containers/0/securityContext/privileged", "value": false },
-    { "op": "add",     "path": "/spec/containers/0/securityContext/runAsNonRoot", "value": true }
-  ]
-}
-```
-
-RHG applies the patch, writes the corrected artifact back to the pipeline workspace, re-queues the scan, and if the patched artifact passes — the pipeline continues with **zero developer intervention**. Every mutation is logged with a full before/after diff in the audit trail.
-
-### Slack alert example
-
-For every gate decision, the alert channel receives a structured Block Kit message:
-
-```
-🟡 ACE Security Gate — org/payments-service
-
-Decision:    🔧 Auto-patched and allowed
-Environment: production
-Severity:    HIGH
-Findings:    3 violations
-
-Blocking rules:
-  • CIS-K8S-5.2.1
-  • CIS-K8S-5.2.2
-
-Auto-mutations applied: 3 patches
-
-[ View Full Report → ]
-```
-
----
-
-## 🚀 Quick start
-
-### Local development (Docker Compose)
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/omkarP-bit/ace-rhg
-cd ace-rhg
-
-# 2. Set environment variables
-cp .env.example .env
-# Fill in: ANTHROPIC_API_KEY, SLACK_WEBHOOK_URL
-
-# 3. Start the full stack
-docker-compose up -d
-
-# Services:
-# ACE API    →  http://localhost:8000/docs
-# RHG API    →  http://localhost:8001/docs
-# Dashboard  →  http://localhost:3000
-# Grafana    →  http://localhost:3001
-# OPA        →  http://localhost:8181
-```
-
-### CLI scan
+The backend is fully deployed on AWS. Just install the CLI and set the URL:
 
 ```bash
 # Install
 pip install ace-compliance
 
-# Scan a directory
-ace scan ./k8s/ --env production --fail-on HIGH
+# Set the backend URL (permanent — survives terminal restarts)
+echo 'export ACE_URL=https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com' >> ~/.zshrc
+source ~/.zshrc
 
-# Scan a single file with JSON output
-ace scan ./terraform/main.tf --output json
-
-# Example output:
-# ============================================================
-#   ACE Scan Report
-#   Risk Score:  8.4/10
-#   Severity:    HIGH
-#   Findings:    3 violations
-# ============================================================
-#   [HIGH] CIS-K8S-5.2.1  deployment.yaml
-#          Privileged container detected: app
-#
-#   [HIGH] CIS-K8S-5.2.2  deployment.yaml
-#          Container runs as root (UID 0): app
+# Scan
+ace scan ./k8s/
 ```
 
-### GitHub Actions
-
-```yaml
-# .github/workflows/deploy.yml
-
-- name: ACE compliance scan
-  uses: omkarP-bit/ace-rhg/.github/actions/ace-scan@v1
-  with:
-    environment: production
-    fail-on: HIGH
-    artifacts-path: ./k8s
-```
-
-### API (direct)
+### Option 2: Local development (Docker Compose)
 
 ```bash
-curl -X POST http://localhost:8000/ace/scan \
+git clone https://github.com/omkarP-bit/ace-rhg
+cd ace-rhg
+
+docker-compose up -d
+
+# Services:
+# ACE API    →  http://localhost:8000
+# RHG API    →  http://localhost:8001
+# OPA        →  http://localhost:8181
+# Redis      →  localhost:6390
+
+# Scan against local backend
+ace scan --ace-url http://localhost:8000 samples/
+
+# Tear down
+docker-compose down
+```
+
+---
+
+## CLI reference
+
+### `ace scan` — scan artifacts for compliance violations
+
+```
+ace scan <paths...> [options]
+```
+
+**Options:**
+
+| Option | Default | Description |
+|---|---|---|
+| `--env` | `production` | Target environment (`production`, `staging`, `development`) |
+| `--output` | `text` | Output format: `text` or `json` |
+| `--fail-on` | `HIGH` | Exit 1 if severity >= this level (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) |
+| `--ace-url` | `$ACE_URL` | Override the ACE service URL |
+
+**Examples:**
+
+```bash
+# Scan a single file
+ace scan deploy.yaml
+
+# Scan multiple files
+ace scan deploy.yaml Dockerfile main.tf
+
+# Scan a directory recursively (finds .yaml, .yml, .tf, Dockerfile*)
+ace scan ./k8s/ ./terraform/
+
+# Scan with staging environment, fail on MEDIUM+
+ace scan ./artifacts/ --env staging --fail-on MEDIUM
+
+# JSON output for CI/CD pipelines
+ace scan ./artifacts/ --output json
+
+# Pipe to jq for filtering
+ace scan ./artifacts/ --output json | jq '.findings[] | select(.severity == "CRITICAL")'
+
+# Override URL inline
+ace scan --ace-url https://my-api.example.com ./deploy.yaml
+```
+
+**Text output:**
+
+```
+============================================================
+  Risk Score:  8.25/10
+  Severity:    HIGH
+  Findings:    7
+============================================================
+  [HIGH] CIS-K8S-5.2.2  vulnerable-deploy.yaml
+       Container runs as root (UID 0): app
+  [MEDIUM] CIS-K8S-5.4.1  vulnerable-deploy.yaml
+       No CPU limit on container: app
+  [HIGH] CIS-K8S-5.2.1  vulnerable-deploy.yaml
+       Privileged container: app
+```
+
+**JSON output:**
+
+```json
+{
+  "scan_id": "aed62885-d061-4554-96be-5fbfe56823cc",
+  "pipeline_id": "cli-scan",
+  "risk_score": 8.25,
+  "overall_severity": "HIGH",
+  "findings": [
+    {
+      "severity": "HIGH",
+      "rule_id": "CIS-K8S-5.2.2",
+      "message": "Container runs as root (UID 0): app",
+      "artifact": "vulnerable-deploy.yaml",
+      "patchable": true,
+      "reference": "https://kubernetes.io/docs/tasks/configure-pod-container/security-context/"
+    }
+  ]
+}
+```
+
+### Configuration
+
+Set `ACE_URL` once and the CLI uses it everywhere:
+
+```bash
+# Permanent (add to shell profile)
+echo 'export ACE_URL=https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com' >> ~/.zshrc
+source ~/.zshrc
+
+# Per-session
+export ACE_URL=https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com
+
+# Per-command
+ace scan --ace-url https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com .
+```
+
+### Exit codes
+
+The exit code makes CI/CD gating easy:
+
+```bash
+# Block deployment on HIGH or above (default)
+ace scan ./k8s/ && echo "Deploy allowed" || echo "Blocked"
+
+# Block only on CRITICAL
+ace scan ./k8s/ --fail-on CRITICAL && echo "Deploy allowed" || echo "Blocked"
+```
+
+| Severity | Exit 1 with `--fail-on` |
+|---|---|
+| `CRITICAL` | `--fail-on CRITICAL` |
+| `HIGH` | `--fail-on HIGH` (default) |
+| `MEDIUM` | `--fail-on MEDIUM` |
+| `LOW` | `--fail-on LOW` |
+| `INFO` | never |
+
+---
+
+## Cloud deployment
+
+The backend runs fully managed on AWS. No infrastructure to manage.
+
+```
+CLI (your machine)
+  │
+  │  HTTPS (managed TLS)
+  ▼
+API Gateway v2 (HTTP API)
+  │
+  │  Lambda Proxy
+  ▼
+Lambda: ace-scan-dev (FastAPI + OPA + Mangum)
+  │
+  │  evaluates against
+  ▼
+OPA Policy Engine (bundled in container)
+```
+
+**AWS Resources:**
+
+| Resource | Endpoint / ARN |
+|---|---|
+| API Gateway | `https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com` |
+| Lambda | `arn:aws:lambda:ap-south-1:574772738717:function:ace-scan-dev` |
+| ECR | `574772738717.dkr.ecr.ap-south-1.amazonaws.com/ace-rhg-dev` |
+
+**API Endpoints:**
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/health` | Health check |
+| POST | `/ace/scan` | Scan artifacts for violations |
+| POST | `/ace/mutate` | Generate patches for findings |
+| POST | `/ace/scan-and-mutate` | Scan + auto-generate patches |
+
+**Direct API usage:**
+
+```bash
+# Health check
+curl https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com/health
+
+# Scan via API
+curl -X POST https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com/ace/scan \
   -H "Content-Type: application/json" \
   -d '{
     "pipeline_id": "my-pipeline-001",
@@ -250,255 +286,177 @@ curl -X POST http://localhost:8000/ace/scan \
       "type": "kubernetes",
       "name": "deployment.yaml",
       "content": "'$(base64 -w0 ./k8s/deployment.yaml)'"
-    }],
-    "policy_bundles": ["cis-kubernetes@v1.8"]
+    }]
   }'
+```
+
+HTTPS is provided automatically by AWS — no certificate setup needed for `*.execute-api.*.amazonaws.com`.
+
+---
+
+## Supported artifacts
+
+| Artifact type | Extensions | Policy bundle | Auto-mutation |
+|---|---|---|---|
+| Kubernetes manifests | `.yaml`, `.yml` | `cis-kubernetes@v1.8` | Yes |
+| Terraform plans | `.tf`, `.tf.json` | `cis-terraform@v1.4` | Yes |
+| Helm charts | `.yaml` (templates) | `cis-kubernetes@v1.8` | Yes |
+| Dockerfiles | `Dockerfile`, `*.dockerfile` | `cis-docker@v1.6` | Yes |
+| GitHub Actions | `.yaml` (workflows) | `gha-security` | Yes |
+
+When scanning a directory, the CLI recursively finds all supported files.
+
+---
+
+## Compliance standards
+
+| Standard | Coverage |
+|---|---|
+| CIS Kubernetes Benchmark v1.8 | Privileged containers, root user, CPU/memory limits, privilege escalation, host network |
+| CIS Docker Benchmark v1.6 | Root user, missing HEALTHCHECK |
+| NIST SP 800-53 Rev 5 | AC-6 least privilege, CM-2 baseline config, SI-7 integrity |
+| GitHub Actions Security | Write-all permissions, mutable tags, pull_request_target, script injection |
+
+---
+
+## CI/CD integration
+
+### GitHub Actions
+
+```yaml
+- name: ACE Compliance Scan
+  run: |
+    pip install ace-compliance
+    ace scan ./k8s/ ./terraform/ --output json --fail-on HIGH
+  env:
+    ACE_URL: https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com
+```
+
+### GitLab CI
+
+```yaml
+ace-scan:
+  image: python:3.12-slim
+  script:
+    - pip install ace-compliance
+    - ace scan ./k8s/ --output json --fail-on HIGH
+  variables:
+    ACE_URL: https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com
+```
+
+### Pre-commit hook
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: ace-scan
+        name: ACE Compliance Scan
+        entry: bash -c 'pip install ace-compliance && ace scan . --fail-on HIGH'
+        language: system
+        files: \.(yaml|yml|tf|dockerfile)$
 ```
 
 ---
 
-## 📦 Supported artifacts
-
-| Artifact type | Extensions | Policy bundle | Auto-mutation |
-|---|---|---|---|
-| Kubernetes manifests | `.yaml`, `.yml` | `cis-kubernetes@v1.8` | ✅ |
-| Terraform plans | `.tf`, `.tf.json`, `tfplan.json` | `cis-terraform@v1.4` | ✅ |
-| Helm charts | `.yaml` (templates) | `cis-kubernetes@v1.8` | ✅ |
-| Dockerfiles | `Dockerfile`, `*.dockerfile` | `cis-docker@v1.6` | ✅ |
-
-Future: AWS CloudFormation · Ansible playbooks · GitHub Actions workflows · Kustomize overlays
-
----
-
-## 📋 Compliance standards
-
-| Standard | Version | Coverage |
-|---|---|---|
-| CIS Kubernetes Benchmark | v1.8 | Privileged containers, host namespaces, capabilities, seccomp, AppArmor, resource limits |
-| CIS Docker Benchmark | v1.6 | Base image hygiene, root user, exposed ports, secrets in layers, resource limits |
-| NIST SP 800-53 | Rev 5 | AC (access control), CM (configuration management), AU (audit logging), SI (system integrity) |
-| ISO/IEC 27001 | 2022 | Risk management, asset protection, security governance |
-| Custom Rego bundles | — | Teams ship their own `.rego` files; ACE loads them via OPA's bundle API |
-
----
-
-## 🏗️ Tech stack
+## Tech stack
 
 ```
 Backend          FastAPI 0.111 · Python 3.12 · Pydantic v2
 Policy engine    Open Policy Agent 0.63 · Rego
-Agent layer      LangGraph · LangChain · Claude claude-sonnet-4-6 (Anthropic)
+Agent layer      LangGraph · LangChain · Groq Llama 3.3 70B
 Orchestration    MCP (Model Context Protocol) server
-Task queue       Celery · Redis 7
 Event bus        Redis Pub/Sub → WebSocket (FastAPI)
-Databases        PostgreSQL 16 (audit trail) · Redis 7 (cache)
-Observability    Prometheus · Grafana · structlog (JSON)
-Alerting         Slack Block Kit · AWS SQS · PagerDuty
-Infrastructure   Docker · Kubernetes · AWS EKS · Terraform
-Serverless       AWS Lambda (Mangum adapter) · API Gateway v2
-Dashboard        React 18 · TypeScript · Tailwind CSS · Recharts
-CI/CD            GitHub Actions · GitLab CI · Jenkins · ArgoCD
-Distribution     PyPI (pip install ace-compliance) · npm (ace-compliance)
+Observability    Prometheus · Grafana · structlog
+Alerting         Slack Block Kit · AWS SQS
+Infrastructure   Docker · AWS Lambda · API Gateway v2 · ECR
+CLI              Click · httpx · PyYAML (pip install ace-compliance)
 ```
 
 ---
 
-## 🔌 Integrations
-
-<table>
-<tr>
-<td><b>CI/CD platforms</b></td>
-<td>GitHub Actions · GitLab CI/CD · Jenkins · Azure DevOps · ArgoCD · Tekton</td>
-</tr>
-<tr>
-<td><b>Alert channels</b></td>
-<td>Slack (Block Kit) · AWS SQS · PagerDuty · Email (SMTP)</td>
-</tr>
-<tr>
-<td><b>Cloud providers</b></td>
-<td>AWS (EKS, Lambda, SQS, ECR, RDS) · GCP (planned) · Azure (planned)</td>
-</tr>
-<tr>
-<td><b>Security tools</b></td>
-<td>Trivy (CVE scanning) · OPA (policy engine) · Grype (vulnerability DB)</td>
-</tr>
-<tr>
-<td><b>Observability</b></td>
-<td>Prometheus · Grafana · Datadog (planned) · OpenTelemetry (planned)</td>
-</tr>
-</table>
-
----
-
-## 🗺️ Build phases
-
-| Phase | Status | Deliverable |
-|---|---|---|
-| **1 — Core engine** | 🔨 In progress | FastAPI ACE service, OPA client, parser layer, Rego bundles, risk scorer |
-| **2 — Mutation engine** | 📋 Planned | Self-healing artifacts, JSON Patch pipeline, mutation audit trail |
-| **3 — Agentic AI layer** | 📋 Planned | LangGraph agents, MCP server, PR review agent, drift detection agent |
-| **4 — RHG + CLI** | 📋 Planned | CI/CD native integrations, `ace` CLI, policy-as-code workflow |
-| **5 — Observability** | 📋 Planned | Grafana dashboards, WebSocket feed, human review queue |
-| **6 — Alert system** | 📋 Planned | Slack Block Kit, SQS queue, alert router with multi-channel support |
-| **7 — Lambda deploy** | 📋 Planned | Serverless packaging, API Gateway, Lambda container images |
-| **8 — SDK packaging** | 📋 Planned | `pip install ace-compliance` · `npm install ace-compliance` |
-
----
-
-## 📁 Repository structure
+## Repository structure
 
 ```
 ace-rhg/
-├── CLAUDE.md               ← system architecture and API contracts
-├── DEVELOPMENT.md          ← phased build guide with unit tests
-├── README.md               ← you are here
-├── docker-compose.yml
+├── README.md
+├── DEVELOPMENT.md
+├── Dockerfile               ← Lambda container image (FastAPI + OPA + Mangum)
+├── docker-compose.yml       ← Local dev stack
+├── entrypoint.sh            ← Docker entrypoint (local)
+├── entrypoint.py            ← Python entrypoint (alternative)
 │
 ├── services/
-│   ├── ace/                ← AI Compliance Engine (FastAPI)
-│   │   ├── api/            ← REST + WebSocket routes
-│   │   ├── parsers/        ← YAML / HCL / Dockerfile parsers
-│   │   ├── agents/         ← LangGraph agent definitions
-│   │   ├── mcp/            ← MCP server and tool registry
-│   │   ├── engine/         ← OPA client, rule engine
-│   │   ├── scoring/        ← risk scorer
-│   │   ├── alerts/         ← Slack, SQS, alert router
-│   │   └── tests/
+│   ├── ace/                 ← AI Compliance Engine
+│   │   ├── api/             ← REST + WebSocket routes
+│   │   ├── parsers/         ← K8s / Terraform / Dockerfile / Helm / GHA parsers
+│   │   ├── engine/          ← OPA client, rule engine
+│   │   ├── scoring/         ← Risk scorer
+│   │   ├── alerts/          ← Slack, SQS, alert router
+│   │   ├── mcp/             ← MCP server and tool registry
+│   │   └── tests/           ← 84 tests
 │   │
-│   ├── rhg/                ← Release Hardening Gate (FastAPI)
-│   │   ├── api/
-│   │   ├── gate/           ← policy evaluator
-│   │   ├── mutator/        ← JSON Patch engine
-│   │   └── tests/
-│   │
-│   └── dashboard/          ← React observability UI
-│       └── src/
-│           ├── components/
-│           └── ws/         ← WebSocket client
+│   └── rhg/                 ← Release Hardening Gate
+│       ├── api/
+│       ├── gate/            ← Policy evaluator
+│       ├── mutator/         ← JSON Patch engine
+│       └── tests/           ← 36 tests
 │
-├── policies/               ← OPA Rego bundles (version-controlled)
+├── policies/                ← OPA Rego bundles
 │   ├── cis-kubernetes/
 │   ├── cis-docker/
 │   ├── nist-800-53/
-│   └── custom/             ← org-specific rules
+│   └── github-actions/
 │
-├── infra/
-│   ├── terraform/          ← AWS EKS + Lambda + API Gateway
-│   ├── helm/               ← ACE+RHG Helm chart
-│   ├── docker/             ← Dockerfiles (app + Lambda image)
-│   └── grafana/dashboards/ ← provisioned dashboard JSON
+├── cli/                     ← ace-compliance CLI package
+│   ├── ace_compliance/
+│   └── pyproject.toml
 │
-└── cli/                    ← ace-compliance CLI (PyPI)
-    └── ace_compliance/
+├── samples/                 ← Example vulnerable artifacts
+└── tests/
 ```
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
-# Run all tests with coverage
-pytest services/ cli/ infra/lambda/ \
-  -v --cov=services --cov-report=term-missing \
-  --cov-fail-under=75
+# Run all tests
+pytest services/ cli/ -v --cov=services --cov-report=term-missing
 
-# Run OPA Rego policy tests
+# Run OPA policy tests
 opa test policies/ -v
 
-# Run specific phase tests
-pytest services/ace/tests/ -v                 # Phase 1
-pytest services/rhg/tests/test_patch*.py -v  # Phase 2
-pytest services/ace/tests/test_agents.py -v  # Phase 3
-pytest cli/tests/ -v                          # Phase 4
-pytest services/ace/tests/test_alerts.py -v  # Phase 6
+# Specific suites
+pytest services/ace/tests/test_parsers.py -v    # Parsers
+pytest services/ace/tests/test_scan_api.py -v   # Scan API
+pytest services/rhg/tests/ -v                    # RHG gate + mutator
+pytest cli/tests/ -v                             # CLI
 ```
 
-Expected output:
-```
-services/ace/tests/test_parsers.py    ✓  5 passed
-services/ace/tests/test_risk_scorer.py ✓  5 passed
-services/ace/tests/test_opa_client.py  ✓  4 passed
-services/ace/tests/test_scan_api.py    ✓  3 passed
-services/rhg/tests/test_patch_engine.py ✓  6 passed
-services/ace/tests/test_agents.py      ✓  4 passed
-services/ace/tests/test_alerts.py      ✓  7 passed
-
-Coverage: 81%
-```
+**128 tests passing · 94% coverage**
 
 ---
 
-## 🌐 Lambda deployment (serverless)
-
-ACE+RHG ships as a container image deployable to AWS Lambda via [Mangum](https://mangum.io/) — the same FastAPI codebase runs locally, in Kubernetes, and in Lambda with zero changes.
+## Contributing
 
 ```bash
-# Build Lambda container image
-make build
-
-# Push to ECR and deploy via Terraform
-make push IMAGE_TAG=v0.1.0
-make deploy-lambda ENV=production IMAGE_TAG=v0.1.0
-
-# After deploy:
-# POST https://<api-id>.execute-api.ap-south-1.amazonaws.com/ace/scan
-```
-
-**Lambda architecture:**
-
-```
-Web user / IDE plugin / npm SDK / pip SDK
-              │
-              ▼
-   API Gateway v2 (HTTP API)
-              │
-     ┌────────┴──────────┐
-     ▼                   ▼
-Lambda: ace-scan    Lambda: ace-mutate
-  (512 MB, 60s)      (512 MB, 60s)
-     │                   │
-     └────────┬──────────┘
-              ▼
-    SQS FIFO alert queue
-              │
-              ▼
-Lambda: alert-dispatcher
-    │              │
-    ▼              ▼
-  Slack         PagerDuty
-```
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome — especially new Rego policy bundles for additional artifact types and cloud providers.
-
-```bash
-# Set up dev environment
 git clone https://github.com/omkarP-bit/ace-rhg
 cd ace-rhg
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-pre-commit install
-
-# Run tests before submitting a PR
-make test && make test-policies
 ```
 
-**Contribution areas:**
-
-- New Rego policies (CloudFormation, Ansible, GitHub Actions workflows)
+**Areas for contribution:**
+- New Rego policies (CloudFormation, Ansible, GitHub Actions)
 - Additional parser implementations
 - Agent specializations (PR review, dependency audit)
-- Grafana dashboard improvements
 - GCP / Azure provider support
-
-Please read `DEVELOPMENT.md` before contributing — it covers the full phased architecture, test conventions, and API contracts.
 
 ---
 
-## 📄 License
+## License
 
 MIT License — see [LICENSE](LICENSE) for details.
 
@@ -506,9 +464,7 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built with ❤️ by [Omkar](https://github.com/omkarP-bit) · VIT Pune, AI & Data Science
-
-<br/>
+Built with by [Omkar](https://github.com/omkarP-bit)
 
 *Shift security left. Ship with confidence.*
 
