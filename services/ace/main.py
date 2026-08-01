@@ -1,6 +1,9 @@
+import logging
 import os
 
 from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
 
 from ace.api.routes import router
 from ace.api.websocket import ws_router
@@ -23,5 +26,5 @@ async def startup():
 
             port = int(os.environ.get("ACE_METRICS_PORT", "9090"))
             start_metrics_server(port)
-        except Exception:
+        except RuntimeError:
             pass

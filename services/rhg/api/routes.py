@@ -6,11 +6,11 @@ from collections.abc import AsyncGenerator
 from typing import Annotated
 
 import httpx
+from ace.alerts.router import AlertPayload, AlertRouter, AlertSeverity
+from ace.metrics.prometheus import track_gate_decision
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
-from ace.alerts.router import AlertPayload, AlertRouter, AlertSeverity
-from ace.metrics.prometheus import track_gate_decision
 from rhg.gate.evaluator import GateEvaluator
 from rhg.mutator.patch_engine import PatchEngine
 

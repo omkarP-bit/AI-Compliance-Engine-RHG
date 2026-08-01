@@ -1,8 +1,11 @@
 import json
+import logging
 import os
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 
 ws_router = APIRouter()
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
@@ -58,5 +61,5 @@ async def publish_event(event_type: str, payload: dict):
         event = {"event_type": event_type, **payload}
         await redis.publish("ace:events", json.dumps(event))
         await redis.aclose()
-    except Exception:
+    except aioredis.RedisError:
         pass

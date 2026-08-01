@@ -4,7 +4,6 @@ import yaml
 
 from .base import BaseParser, NormalizedArtifact
 
-
 COMPOSE_FILENAMES = {
     "docker-compose.yml",
     "docker-compose.yaml",

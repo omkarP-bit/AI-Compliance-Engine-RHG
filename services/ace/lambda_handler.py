@@ -1,7 +1,11 @@
 import os
 import subprocess
 import time
+
 import httpx
+from mangum import Mangum
+
+from ace.main import app
 
 policies_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "policies")
 proc = subprocess.Popen(
@@ -15,11 +19,8 @@ for _ in range(30):
         r = httpx.get("http://localhost:8181/health", timeout=1.0)
         if r.status_code == 200:
             break
-    except Exception:
+    except httpx.ConnectError:
         pass
     time.sleep(0.25)
-
-from mangum import Mangum
-from ace.main import app
 
 handler = Mangum(app, lifespan="off")
