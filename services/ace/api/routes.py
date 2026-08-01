@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ace.api.websocket import publish_event
 from ace.engine.opa_client import OPAClient
 from ace.metrics.prometheus import track_scan
+from ace.parsers.docker_compose import DockerComposeParser
 from ace.parsers.dockerfile import DockerfileParser
 from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
@@ -20,12 +21,20 @@ from ace.scoring.risk_scorer import score_findings
 router = APIRouter(prefix="/ace", tags=["ACE"])
 opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
 
-PARSERS = [GitHubActionsParser(), KubernetesParser(), TerraformParser(), DockerfileParser(), HelmParser()]
+PARSERS = [
+    GitHubActionsParser(),
+    DockerComposeParser(),
+    KubernetesParser(),
+    TerraformParser(),
+    DockerfileParser(),
+    HelmParser(),
+]
 POLICY_MAP = {
     "kubernetes": "ace/cis/kubernetes",
     "terraform": "ace/cis/terraform",
     "dockerfile": "ace/cis/docker",
     "helm": "ace/cis/kubernetes",
+    "docker_compose": "ace/cis/docker_compose",
     "github_actions": "ace/gha/security",
     "nist": "ace/nist",
 }

@@ -9,6 +9,7 @@ class RuleEngine:
             "terraform": "ace/cis/terraform",
             "dockerfile": "ace/cis/docker",
             "helm": "ace/cis/kubernetes",
+            "docker_compose": "ace/cis/docker_compose",
         }
 
     async def evaluate(self, artifact_type: str, input_data: dict) -> list[dict]:

@@ -93,6 +93,13 @@ def _make_artifact(path: Path) -> dict:
     ext = path.suffix
     if name == "Dockerfile" or name.endswith(".dockerfile"):
         artifact_type = "dockerfile"
+    elif name in (
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
+    ) or (name.startswith("docker-compose.") and name.endswith((".yml", ".yaml"))):
+        artifact_type = "docker_compose"
     elif ext in (".yaml", ".yml"):
         artifact_type = "kubernetes"
     elif ext in (".tf", ".tf.json"):

@@ -9,17 +9,18 @@ class DockerfileParser(BaseParser):
 
     def parse(self, content: str, name: str) -> NormalizedArtifact:
         instructions = self._parse_instructions(content)
+        metadata = {
+            "from_image": self._extract_from_image(instructions),
+            "user": self._extract_user(instructions),
+            "has_healthcheck": any(i["instruction"] == "HEALTHCHECK" for i in instructions),
+            "has_entrypoint": any(i["instruction"] in ("ENTRYPOINT", "CMD") for i in instructions),
+            "exposed_ports": self._extract_ports(instructions),
+        }
         return NormalizedArtifact(
             artifact_type="dockerfile",
             name=name,
-            raw={"instructions": instructions},
-            metadata={
-                "from_image": self._extract_from_image(instructions),
-                "user": self._extract_user(instructions),
-                "has_healthcheck": any(i["instruction"] == "HEALTHCHECK" for i in instructions),
-                "has_entrypoint": any(i["instruction"] in ("ENTRYPOINT", "CMD") for i in instructions),
-                "exposed_ports": self._extract_ports(instructions),
-            }
+            raw={"instructions": instructions, "metadata": metadata},
+            metadata=metadata,
         )
 
     def _parse_instructions(self, content: str) -> list[dict]:

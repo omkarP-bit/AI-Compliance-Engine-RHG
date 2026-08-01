@@ -1,3 +1,4 @@
+from ace.parsers.docker_compose import DockerComposeParser
 from ace.parsers.dockerfile import DockerfileParser
 from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
@@ -327,3 +328,151 @@ metadata:
 """
         artifact = self.parser.parse(content, "templates/config.yaml")
         assert artifact.metadata["has_template_expressions"] is False
+
+
+VULN_DOCKER_COMPOSE = """
+version: "3.8"
+services:
+  web:
+    image: vulnerables/web-dvwa:latest
+    container_name: vulnerable-web
+    ports:
+      - "127.0.0.1:8080:80"
+    cap_add:
+      - NET_ADMIN
+      - SYS_PTRACE
+    environment:
+      DB_SERVER: db
+      DB_USER: admin
+      DB_PASSWORD: admin123
+      DB_NAME: appdb
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: password123
+      API_KEY: "dev-secret-key-12345"
+    volumes:
+      - ./web-data:/var/www/html/uploads
+    networks:
+      - frontend
+      - backend
+  db:
+    image: mysql:5.7
+    container_name: vulnerable-db
+    ports:
+      - "127.0.0.1:3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: appdb
+      MYSQL_USER: admin
+      MYSQL_PASSWORD: admin123
+    volumes:
+      - db-data:/var/lib/mysql
+    networks:
+      - backend
+  redis:
+    image: redis:5.0
+    container_name: vulnerable-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: redis-server --protected-mode no
+    networks:
+      - backend
+  adminer:
+    image: adminer:4
+    container_name: vulnerable-adminer
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      - db
+    networks:
+      - frontend
+      - backend
+volumes:
+  db-data:
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
+"""
+
+CLEAN_DOCKER_COMPOSE = """
+version: "3.8"
+services:
+  web:
+    image: nginx:1.25
+    user: "1000"
+    ports:
+      - "127.0.0.1:8080:80"
+    environment:
+      APP_ENV: production
+    networks:
+      - frontend
+networks:
+  frontend:
+    driver: bridge
+"""
+
+
+class TestDockerComposeParser:
+    def setup_method(self):
+        self.parser = DockerComposeParser()
+
+    def test_supports_docker_compose_files(self):
+        assert self.parser.supports("docker-compose.yml") is True
+        assert self.parser.supports("docker-compose.yaml") is True
+        assert self.parser.supports("compose.yml") is True
+        assert self.parser.supports("compose.yaml") is True
+        assert self.parser.supports("docker-compose.dev.yml") is True
+
+    def test_does_not_support_plain_yaml(self):
+        assert self.parser.supports("deployment.yaml") is False
+        assert self.parser.supports("values.yaml") is False
+
+    def test_parse_returns_docker_compose_artifact(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        assert artifact.artifact_type == "docker_compose"
+        assert artifact.name == "docker-compose.yml"
+
+    def test_extracts_service_names(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        assert len(artifact.metadata["service_names"]) == 4
+        assert "web" in artifact.metadata["service_names"]
+        assert "db" in artifact.metadata["service_names"]
+        assert "redis" in artifact.metadata["service_names"]
+        assert "adminer" in artifact.metadata["service_names"]
+
+    def test_normalizes_service_fields(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        web = next(s for s in artifact.raw["services"] if s["name"] == "web")
+        assert web["image"] == "vulnerables/web-dvwa:latest"
+        assert web["container_name"] == "vulnerable-web"
+        assert web["user"] == ""
+        assert web["privileged"] is False
+
+    def test_normalizes_cap_add(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        web = next(s for s in artifact.raw["services"] if s["name"] == "web")
+        assert "NET_ADMIN" in web["cap_add"]
+        assert "SYS_PTRACE" in web["cap_add"]
+
+    def test_normalizes_environment(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        web = next(s for s in artifact.raw["services"] if s["name"] == "web")
+        assert web["environment"]["DB_PASSWORD"] == "admin123"
+        assert web["environment"]["API_KEY"] == "dev-secret-key-12345"
+
+    def test_normalizes_volumes(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        web = next(s for s in artifact.raw["services"] if s["name"] == "web")
+        assert "./web-data:/var/www/html/uploads" in web["volumes"]
+
+    def test_normalizes_command(self):
+        artifact = self.parser.parse(VULN_DOCKER_COMPOSE, "docker-compose.yml")
+        redis = next(s for s in artifact.raw["services"] if s["name"] == "redis")
+        assert redis["command"] == "redis-server --protected-mode no"
+
+    def test_parse_clean_compose_has_no_host_mounts(self):
+        artifact = self.parser.parse(CLEAN_DOCKER_COMPOSE, "docker-compose.yml")
+        web = next(s for s in artifact.raw["services"] if s["name"] == "web")
+        assert len(web["volumes"]) == 0
+        assert web["user"] == "1000"
