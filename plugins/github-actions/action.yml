@@ -1,0 +1,43 @@
+name: ACE+RHG Compliance Gate (v2)
+description: Scan deployment artifacts and backend source with ACE, auto-apply compatible OPA mutations, and set the gate decision as a native status check.
+
+inputs:
+  ace-url:
+    description: ACE/RHG service URL
+    required: true
+  environment:
+    description: Target environment (production / staging / dev)
+    required: false
+    default: production
+  fail-on:
+    description: Minimum severity to fail the pipeline (CRITICAL / HIGH / MEDIUM / LOW)
+    required: false
+    default: HIGH
+  artifacts-path:
+    description: Path(s) to scan for deployment artifacts
+    required: false
+    default: ./k8s
+  backend-path:
+    description: Path to backend source code submitted for the compatibility check (.env always excluded)
+    required: false
+    default: ./src
+  exclude-patterns:
+    description: Extra globs to exclude (.env is always excluded)
+    required: false
+    default: ""
+  github-token:
+    description: GitHub token for status checks and PR comments
+    required: false
+    default: ${{ github.token }}
+  notify-slack:
+    description: Send OPS mutation notifications via Slack
+    required: false
+    default: "false"
+
+runs:
+  using: node20
+  main: src/index.js
+
+branding:
+  icon: shield
+  color: blue

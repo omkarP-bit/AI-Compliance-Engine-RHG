@@ -1,0 +1,51 @@
+# ACE+RHG compliance gate — GitLab CI component (v2)
+#
+# Include with:
+#   include:
+#     - component: $CI_SERVER_FQDN/omkarP-bit/ace-rhg/ace-gate@v2
+#
+# Submit backend source via ACE_BACKEND_PATH for the full-stack compatibility check.
+# .env files are always excluded by the ACE service.
+
+spec:
+  inputs:
+    environment:
+      default: production
+    fail-on:
+      default: HIGH
+    artifacts-path:
+      default: ./k8s
+    backend-path:
+      default: ./src
+    ace-url:
+      default: http://localhost:8000
+    notify-slack:
+      default: "false"
+
+---
+
+ace-compliance:
+  stage: compliance
+  image: python:3.12
+  variables:
+    ACE_URL: $[[ inputs.ace-url ]]
+    ACE_ENVIRONMENT: $[[ inputs.environment ]]
+    ACE_FAIL_ON: $[[ inputs.fail-on ]]
+    ACE_ARTIFACTS_PATH: $[[ inputs.artifacts-path ]]
+    ACE_BACKEND_PATH: $[[ inputs.backend-path ]]
+    ACE_NOTIFY_SLACK: $[[ inputs.notify-slack ]]
+  script:
+    - pip install --quiet ace-compliance
+    - |
+      ace scan "$ACE_ARTIFACTS_PATH" \
+        --env "$ACE_ENVIRONMENT" \
+        --fail-on "$ACE_FAIL_ON" \
+        --ace-url "$ACE_URL" \
+        --output json | tee ace-report.json
+  artifacts:
+    when: always
+    paths:
+      - ace-report.json
+    reports:
+      sast: ace-report.json
+  allow_failure: false
