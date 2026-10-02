@@ -191,3 +191,85 @@ class TestScanAndMutateAPI:
                 assert data["patch_count"] > 0
                 for p in data.get("mutations_applied", []):
                     assert p is not None
+
+
+class TestScanWithBackendSource:
+    @pytest.mark.asyncio
+    async def test_scan_returns_backend_profile(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            with patch("ace.api.routes.opa.health", new_callable=AsyncMock, return_value=True), \
+                 patch("ace.api.routes.opa.evaluate_deny", new_callable=AsyncMock, return_value=[]):
+                resp = await client.post("/ace/scan", json={
+                    "pipeline_id": "test-bs",
+                    "environment": "production",
+                    "artifacts": [],
+                    "backend_source": [
+                        {
+                            "language": "python",
+                            "filename": "main.py",
+                            "content": base64.b64encode(
+                                b'import os\nDATABASE_URL = os.environ["DATABASE_URL"]\n'
+                                b"# uvicorn main:app --port 8000\n"
+                            ).decode(),
+                        }
+                    ],
+                })
+                assert resp.status_code == 200
+                data = resp.json()
+                bs = data["backend_scan"]
+                assert bs["language"] == "python"
+                assert 8000 in bs["port_bindings"]
+                assert "DATABASE_URL" in bs["env_vars_used"]
+
+    @pytest.mark.asyncio
+    async def test_scan_without_backend_source_returns_empty_profile(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            with patch("ace.api.routes.opa.health", new_callable=AsyncMock, return_value=True), \
+                 patch("ace.api.routes.opa.evaluate_deny", new_callable=AsyncMock, return_value=[]):
+                resp = await client.post("/ace/scan", json={
+                    "pipeline_id": "test-nobs",
+                    "environment": "dev",
+                    "artifacts": [],
+                })
+                data = resp.json()
+                assert data["backend_scan"] == {}
+
+
+class TestNotifyMutationAPI:
+    @pytest.mark.asyncio
+    async def test_notify_mutation_returns_200(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            with patch("ace.api.routes.notifier.notify", new_callable=AsyncMock,
+                       return_value={"slack": True, "email": False}):
+                resp = await client.post("/ace/notify-mutation", json={
+                    "pipeline_id": "pipe-notify",
+                    "repo": "org/svc",
+                    "branch": "main",
+                    "environment": "production",
+                    "finding": {
+                        "rule_id": "CIS-K8S-5.2.1",
+                        "severity": "HIGH",
+                        "message": "Privileged container",
+                        "artifact": "deploy.yaml",
+                    },
+                    "patches": [{"op": "replace", "path": "/x", "value": False}],
+                    "compatibility_verdict": "COMPATIBLE",
+                })
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["notified"] is True
+                assert data["channels"]["slack"] is True
+
+    @pytest.mark.asyncio
+    async def test_notify_mutation_skips_below_threshold(self):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            with patch("ace.api.routes.notifier.notify", new_callable=AsyncMock, return_value={}):
+                resp = await client.post("/ace/notify-mutation", json={
+                    "pipeline_id": "pipe-notify-2",
+                    "repo": "org/svc",
+                    "environment": "dev",
+                    "finding": {"rule_id": "X", "severity": "LOW", "artifact": "x.yaml"},
+                    "patches": [],
+                })
+                assert resp.status_code == 200
+                assert resp.json()["notified"] is False

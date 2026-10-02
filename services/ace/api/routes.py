@@ -10,7 +10,11 @@ from pydantic import BaseModel
 from ace.api.websocket import publish_event
 from ace.engine.opa_client import OPAClient
 from ace.metrics.prometheus import track_scan
+<<<<<<< Updated upstream
 from ace.parsers.docker_compose import DockerComposeParser
+=======
+from ace.notifier.mutation_notifier import MutationEvent, MutationNotifier
+>>>>>>> Stashed changes
 from ace.parsers.dockerfile import DockerfileParser
 from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
@@ -20,6 +24,7 @@ from ace.scoring.risk_scorer import score_findings
 
 router = APIRouter(prefix="/ace", tags=["ACE"])
 opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
+notifier = MutationNotifier()
 
 PARSERS = [
     GitHubActionsParser(),
@@ -46,11 +51,18 @@ class ArtifactInput(BaseModel):
     content: str
 
 
+class BackendFile(BaseModel):
+    language: str = "unknown"
+    filename: str
+    content: str
+
+
 class ScanRequest(BaseModel):
     pipeline_id: str
     environment: str = "production"
     artifacts: list[ArtifactInput]
     policy_bundles: list[str] = ["cis-kubernetes@v1.8"]
+    backend_source: list[BackendFile] = []
 
 
 class ScanResponse(BaseModel):
@@ -59,6 +71,7 @@ class ScanResponse(BaseModel):
     risk_score: float
     overall_severity: str
     findings: list[dict]
+    backend_scan: dict = {}
 
 
 class MutateRequest(BaseModel):
@@ -106,6 +119,21 @@ async def scan(request: ScanRequest):
         all_findings.extend(findings)
 
     risk = score_findings(all_findings, request.environment)
+    backend_scan = {}
+    if request.backend_source:
+        from ace.backend_scanner.extractor import BackendExtractor
+
+        profile = BackendExtractor().extract(
+            [b.model_dump() for b in request.backend_source]
+        )
+        backend_scan = {
+            "language": profile.language,
+            "port_bindings": profile.port_bindings,
+            "env_vars_used": profile.env_vars_used,
+            "routes": profile.routes,
+            "frameworks": profile.frameworks,
+        }
+
     duration = time.time() - start
     outcome = "block" if risk.severity.value in ("CRITICAL", "HIGH") else "allow"
     track_scan(request.environment, outcome, duration, all_findings)
@@ -123,6 +151,7 @@ async def scan(request: ScanRequest):
         risk_score=risk.score,
         overall_severity=risk.severity.value,
         findings=all_findings,
+        backend_scan=backend_scan,
     )
 
 
@@ -210,3 +239,42 @@ async def scan_and_mutate(request: ScanRequest):
         mutations_applied=all_mutations,
         before_snapshot=before_snapshot,
     )
+
+
+class NotifyMutationRequest(BaseModel):
+    pipeline_id: str
+    repo: str
+    branch: str = "main"
+    environment: str = "production"
+    finding: dict = {}
+    patches: list[dict] = []
+    compatibility_verdict: str = "SKIPPED"
+    diff_url: str = ""
+    review_url: str = ""
+
+
+@router.post("/notify-mutation")
+async def notify_mutation(req: NotifyMutationRequest):
+    dashboard = os.environ.get("DASHBOARD_URL", "")
+    event = MutationEvent(
+        pipeline_id=req.pipeline_id,
+        repo=req.repo,
+        branch=req.branch,
+        environment=req.environment,
+        rule_id=req.finding.get("rule_id", "UNKNOWN"),
+        rule_severity=req.finding.get("severity", "HIGH"),
+        rule_description=req.finding.get("message", ""),
+        artifact_name=req.finding.get("artifact", ""),
+        patches=req.patches,
+        compatibility_verdict=req.compatibility_verdict,
+        diff_url=req.diff_url or f"{dashboard}/diff/{req.pipeline_id}",
+        review_url=req.review_url or f"{dashboard}/review/{req.pipeline_id}",
+    )
+    await publish_event("ops.notified", {
+        "pipeline_id": req.pipeline_id,
+        "rule_id": event.rule_id,
+        "artifact": event.artifact_name,
+        "compatibility": event.compatibility_verdict,
+    })
+    results = await notifier.notify(event)
+    return {"notified": bool(results), "channels": results}

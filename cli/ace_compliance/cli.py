@@ -21,7 +21,7 @@ def cli():
 @click.option("--env", default="production", help="Target environment")
 @click.option("--output", type=click.Choice(["text", "json"]), default="text")
 @click.option("--fail-on", type=click.Choice(["CRITICAL", "HIGH", "MEDIUM", "LOW"]), default="HIGH")
-@click.option("--ace-url", envvar="ACE_URL", default=None, help="ACE service URL (required, or set ACE_URL env var)")
+@click.option("--ace-url", envvar="ACE_URL", default="http://localhost:8000", help="ACE service URL (default: http://localhost:8000, or set ACE_URL env var)")
 def scan(paths, env, output, fail_on, ace_url):
     """Scan one or more artifact files for compliance violations."""
     if not paths:
@@ -30,25 +30,12 @@ def scan(paths, env, output, fail_on, ace_url):
 
 
 async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: str):
-    if not ace_url:
-        raise click.UsageError(
-            "ACE service URL required. Set --ace-url or ACE_URL env var.\n"
-            "  export ACE_URL=https://fw6mh9jzpc.execute-api.ap-south-1.amazonaws.com\n"
-            "  ace scan --ace-url $ACE_URL ."
-        )
     artifacts = []
 
     for path_str in paths:
         p = Path(path_str)
         if p.is_dir():
-            for f in p.rglob("*.yaml"):
-                artifacts.append(_make_artifact(f))
-            for f in p.rglob("*.yml"):
-                artifacts.append(_make_artifact(f))
-            for f in p.rglob("*.tf"):
-                artifacts.append(_make_artifact(f))
-            for f in p.rglob("Dockerfile*"):
-                artifacts.append(_make_artifact(f))
+            artifacts.extend(_make_artifact(f) for f in _iter_artifacts(p))
         else:
             artifacts.append(_make_artifact(p))
 
@@ -88,10 +75,23 @@ async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: 
         raise SystemExit(1)
 
 
+def _iter_artifacts(base: Path):
+    seen: set[Path] = set()
+    for f in base.rglob("*"):
+        if not f.is_file():
+            continue
+        name = f.name.lower()
+        if name.endswith((".yaml", ".yml", ".tf")):
+            seen.add(f.resolve())
+        elif "dockerfile" in name:
+            seen.add(f.resolve())
+    return sorted(seen)
+
+
 def _make_artifact(path: Path) -> dict:
     name = path.name
     ext = path.suffix
-    if name == "Dockerfile" or name.endswith(".dockerfile"):
+    if "dockerfile" in name.lower():
         artifact_type = "dockerfile"
     elif name in (
         "docker-compose.yml",

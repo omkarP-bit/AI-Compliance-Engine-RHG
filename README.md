@@ -365,7 +365,8 @@ repos:
 ```
 Backend          FastAPI 0.111 · Python 3.12 · Pydantic v2
 Policy engine    Open Policy Agent 0.63 · Rego
-Agent layer      LangGraph · LangChain · Groq Llama 3.3 70B
+Agent layer      LangGraph · NVIDIA Nemotron (Nebius Token Factory) · Groq Llama 3.3 70B
+LLM access       ace.llm.LLMProvider — one ABC, providers behind a factory
 Orchestration    MCP (Model Context Protocol) server
 Event bus        Redis Pub/Sub → WebSocket (FastAPI)
 Observability    Prometheus · Grafana · structlog
@@ -373,6 +374,35 @@ Alerting         Slack Block Kit · AWS SQS
 Infrastructure   Docker · AWS Lambda · API Gateway v2 · ECR
 CLI              Click · httpx · PyYAML (pip install ace-compliance)
 ```
+
+### Agentic release loop (v3)
+
+Beyond the scan/mutate/gate pipeline, ACE ships a LangGraph loop that reasons
+about each finding, proposes a remediation, applies it, re-scans, and routes to
+ALLOW / PATCHED / BLOCK:
+
+```
+analyzing → reasoning → plan_remediation → mutating
+          → compatibility_check → verification → (retry | next_finding)
+          → gate
+```
+
+Configure the reasoning backend:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MODEL_PROVIDER` | `nebius` | Which registered `LLMProvider` to use |
+| `NEBIUS_API_KEY` | *(empty)* | Nebius Token Factory key |
+| `NEBIUS_BASE_URL` | `https://api.studio.nebius.ai/v1` | Override for a gateway |
+| `NEMOTRON_MODEL` | `nvidia/llama-3.1-nemotron-70b-instruct` | Model id |
+| `AGENT_CONFIDENCE_THRESHOLD` | `0.85` | Below this, escalate to a human |
+| `AGENT_MAX_RETRIES` | `3` | Retries per finding, on top of the first attempt |
+
+The agents reason; they never decide. OPA is the sole policy authority, only
+`PatchEngine` mutates, and an `INCOMPATIBLE` compatibility verdict cannot be
+overridden by the model. With no `NEBIUS_API_KEY` set, agentic runs **fail
+closed** to `BLOCK` rather than shipping unreviewed patches — the rest of ACE
+keeps working normally.
 
 ---
 
@@ -390,18 +420,21 @@ ace-rhg/
 ├── services/
 │   ├── ace/                 ← AI Compliance Engine
 │   │   ├── api/             ← REST + WebSocket routes
+│   │   ├── agents/          ← LangGraph release loop + context/remediation/verification agents
+│   │   ├── llm/             ← LLMProvider ABC, Nebius/Nemotron backend, factory
 │   │   ├── parsers/         ← K8s / Terraform / Dockerfile / Helm / GHA parsers
-│   │   ├── engine/          ← OPA client, rule engine
+│   │   ├── engine/          ← OPA client, rule engine, artifact codec
+│   │   ├── mutator/         ← JSON Patch engine (canonical location)
 │   │   ├── scoring/         ← Risk scorer
 │   │   ├── alerts/          ← Slack, SQS, alert router
 │   │   ├── mcp/             ← MCP server and tool registry
-│   │   └── tests/           ← 84 tests
+│   │   └── tests/           ← 201 tests
 │   │
 │   └── rhg/                 ← Release Hardening Gate
 │       ├── api/
 │       ├── gate/            ← Policy evaluator
-│       ├── mutator/         ← JSON Patch engine
-│       └── tests/           ← 36 tests
+│       ├── mutator/         ← Re-export shim → ace.mutator.patch_engine
+│       └── tests/           ← 40 tests
 │
 ├── policies/                ← OPA Rego bundles
 │   ├── cis-kubernetes/
@@ -429,13 +462,16 @@ pytest services/ cli/ -v --cov=services --cov-report=term-missing
 opa test policies/ -v
 
 # Specific suites
-pytest services/ace/tests/test_parsers.py -v    # Parsers
-pytest services/ace/tests/test_scan_api.py -v   # Scan API
-pytest services/rhg/tests/ -v                    # RHG gate + mutator
-pytest cli/tests/ -v                             # CLI
+pytest services/ace/tests/test_parsers.py -v      # Parsers
+pytest services/ace/tests/test_scan_api.py -v     # Scan API
+pytest services/ace/tests/test_llm_provider.py -v # LLM provider abstraction
+pytest services/ace/tests/test_agents_v3.py -v    # Agents + state contract
+pytest services/ace/tests/test_release_graph.py -v # LangGraph release loop
+pytest services/rhg/tests/ -v                     # RHG gate + mutator
+pytest cli/tests/ -v                              # CLI
 ```
 
-**128 tests passing · 94% coverage**
+**245 tests passing** (ACE 201 · RHG 40 · CLI 4)
 
 ---
 

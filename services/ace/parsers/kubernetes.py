@@ -12,7 +12,7 @@ class KubernetesParser(BaseParser):
         return filename.endswith((".yaml", ".yml"))
 
     def parse(self, content: str, name: str) -> NormalizedArtifact:
-        docs = list(yaml.safe_load_all(content))
+        docs = [d for d in yaml.safe_load_all(content) if isinstance(d, dict)]
         raw = docs[0] if docs else {}
         kind = raw.get("kind", "Unknown")
         containers = self._extract_containers(raw)

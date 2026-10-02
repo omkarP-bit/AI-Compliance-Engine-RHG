@@ -215,6 +215,33 @@ spec:
         assert artifact.metadata["kind"] == "Pod"
         assert len(artifact.metadata["containers"]) == 1
 
+    def test_skips_list_document_without_crashing(self):
+        list_yaml = """
+- name: item-one
+  value: 1
+- name: item-two
+  value: 2
+"""
+        artifact = self.parser.parse(list_yaml, "list.yaml")
+        assert artifact.metadata["kind"] == "Unknown"
+
+    def test_uses_first_dict_document_in_multi_doc(self):
+        multi_doc = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: first-app
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: second-svc
+--- 
+- name: stray-list
+"""
+        artifact = self.parser.parse(multi_doc, "multi.yaml")
+        assert artifact.metadata["kind"] == "Deployment"
+
 
 class TestTerraformParser:
     def setup_method(self):
@@ -262,7 +289,16 @@ class TestDockerfileParser:
     def test_supports_dockerfile(self):
         assert self.parser.supports("Dockerfile") is True
         assert self.parser.supports("app.dockerfile") is True
+        assert self.parser.supports("anti-pattern-Dockerfile") is True
+        assert self.parser.supports("Dockerfile.prod") is True
         assert self.parser.supports("deploy.yaml") is False
+
+    def test_raw_includes_metadata_for_opa(self):
+        content = "FROM node:latest\nENV DB_PASSWORD=secret\nRUN curl https://x.com | bash\n"
+        artifact = self.parser.parse(content, "Dockerfile")
+        assert artifact.raw["metadata"]["user"] == ""
+        assert artifact.raw["metadata"]["has_healthcheck"] is False
+        assert artifact.raw["instructions"][0] == {"instruction": "FROM", "args": "node:latest"}
 
     def test_parse_returns_instructions(self):
         content = "FROM python:3.12\nRUN pip install requests\n"

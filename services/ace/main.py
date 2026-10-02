@@ -3,13 +3,18 @@ import os
 
 from fastapi import FastAPI
 
+<<<<<<< Updated upstream
 logger = logging.getLogger(__name__)
 
+=======
+from ace.api.compatibility import compat_router
+>>>>>>> Stashed changes
 from ace.api.routes import router
 from ace.api.websocket import ws_router
 
-app = FastAPI(title="ACE — AI Compliance Engine", version="0.1.0")
+app = FastAPI(title="ACE — AI Compliance Engine", version="2.0.0")
 app.include_router(router)
+app.include_router(compat_router)
 app.include_router(ws_router)
 
 

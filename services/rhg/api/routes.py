@@ -33,12 +33,19 @@ class ArtifactInput(BaseModel):
     content: str
 
 
+class BackendFile(BaseModel):
+    language: str = "unknown"
+    filename: str
+    content: str
+
+
 class SubmitRequest(BaseModel):
     pipeline_id: str
     repo: str = "unknown/repo"
     branch: str = "main"
     environment: str = "production"
     artifacts: list[ArtifactInput]
+    backend_source: list[BackendFile] = []
 
 
 class PatchedArtifact(BaseModel):
@@ -53,6 +60,8 @@ class SubmitResponse(BaseModel):
     scan_id: str
     mutations_applied: int
     mutator_retries: int
+    compatibility_verdict: str
+    ops_notified: bool
     blocking_findings: list[dict]
     patched_artifacts: list[PatchedArtifact]
     report_url: str
@@ -88,6 +97,60 @@ def _infer_type(filename: str) -> str:
     return "kubernetes"
 
 
+def _pick_verdict(new: str, current: str) -> str:
+    """Pick the more serious verdict. INCOMPATIBLE > COMPATIBLE > SKIPPED."""
+    rank = {"INCOMPATIBLE": 2, "COMPATIBLE": 1, "SKIPPED": 0}
+    return new if rank.get(new, 0) > rank.get(current, 0) else current
+
+
+async def _check_compatibility(
+    client: httpx.AsyncClient,
+    request: SubmitRequest,
+    scan: dict,
+    patched: dict,
+    patches: list[dict],
+) -> tuple[str, list[dict]]:
+    """Return (verdict, mismatches) from the ACE compatibility checker."""
+    backend_scan = scan.get("backend_scan") or {}
+    if not request.backend_source or not backend_scan:
+        return "SKIPPED", []
+    try:
+        resp = await client.post(
+            f"{ACE_URL}/ace/compatibility-check",
+            json={
+                "pipeline_id": request.pipeline_id,
+                "patched_artifact": patched,
+                "backend_scan": backend_scan,
+                "mutations_applied": patches,
+            },
+        )
+        if resp.status_code != 200:
+            return "SKIPPED", []
+        data = resp.json()
+        return data.get("verdict", "COMPATIBLE"), data.get("mismatches", [])
+    except Exception:  # noqa: BLE001
+        return "SKIPPED", []
+
+
+async def _notify_mutation(client: httpx.AsyncClient, request: SubmitRequest, finding: dict, patches: list[dict], verdict: str) -> bool:
+    try:
+        resp = await client.post(
+            f"{ACE_URL}/ace/notify-mutation",
+            json={
+                "pipeline_id": request.pipeline_id,
+                "repo": request.repo,
+                "branch": request.branch,
+                "environment": request.environment,
+                "finding": finding,
+                "patches": patches,
+                "compatibility_verdict": verdict,
+            },
+        )
+        return resp.status_code == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def _run_mutation_pipeline(
     client: httpx.AsyncClient,
     request: SubmitRequest,
@@ -98,6 +161,9 @@ async def _run_mutation_pipeline(
     total_mutations = 0
     all_patches = []
     patched_artifacts_output: list[PatchedArtifact] = []
+    escalated_findings: list[dict] = []
+    compatibility_verdict = "SKIPPED"
+    ops_notified = False
     retry_count = start_retry
     current_scan = copy.deepcopy(initial_scan)
 
@@ -114,33 +180,56 @@ async def _run_mutation_pipeline(
                 artifact_dict = {}
 
         normalized = _normalize_kubernetes_artifact(copy.deepcopy(artifact_dict))
+        artifact_findings = [
+            f for f in patchable_findings if f.get("artifact") == artifact_input.name
+        ]
 
         artifact_patches = []
-        for finding in patchable_findings:
-            if finding.get("artifact") == artifact_input.name:
-                mutate_resp = await client.post(
-                    f"{ACE_URL}/ace/mutate",
-                    json={
-                        "artifact_type": artifact_input.type,
-                        "artifact": normalized,
-                        "finding_ids": [finding.get("id", "")],
-                    },
-                )
-                if mutate_resp.status_code == 200:
-                    mutate_data = mutate_resp.json()
-                    artifact_patches.extend(mutate_data.get("patches", []))
+        for finding in artifact_findings:
+            mutate_resp = await client.post(
+                f"{ACE_URL}/ace/mutate",
+                json={
+                    "artifact_type": artifact_input.type,
+                    "artifact": normalized,
+                    "finding_ids": [finding.get("id", "")],
+                },
+            )
+            if mutate_resp.status_code == 200:
+                mutate_data = mutate_resp.json()
+                artifact_patches.extend(mutate_data.get("patches", []))
 
-        if artifact_patches:
-            deduplicated = _deduplicate_patches(artifact_patches)
-            patched_dict, ops = PatchEngine.apply_patches(normalized, deduplicated)
-            all_patches.extend(deduplicated)
-            patched_content = yaml.dump(patched_dict) if _is_yaml(artifact_input.name) else json.dumps(patched_dict)
-            patched_artifacts_output.append(PatchedArtifact(
-                name=artifact_input.name,
-                content=base64.b64encode(patched_content.encode()).decode(),
-                patches_applied=ops,
-            ))
-            total_mutations += len(ops)
+        if not artifact_patches:
+            continue
+
+        deduplicated = _deduplicate_patches(artifact_patches)
+        patched_dict, ops = PatchEngine.apply_patches(normalized, deduplicated)
+
+        verdict, mismatches = await _check_compatibility(
+            client, request, initial_scan, patched_dict, deduplicated
+        )
+        compatibility_verdict = _pick_verdict(verdict, compatibility_verdict)
+
+        if verdict == "INCOMPATIBLE":
+            for finding in artifact_findings:
+                escalated_findings.append({
+                    **finding,
+                    "compat_mismatches": mismatches,
+                    "escalation_reason": "mutation incompatible with backend",
+                })
+            continue  # do not commit this patch
+
+        all_patches.extend(deduplicated)
+        patched_content = yaml.dump(patched_dict) if _is_yaml(artifact_input.name) else json.dumps(patched_dict)
+        patched_artifacts_output.append(PatchedArtifact(
+            name=artifact_input.name,
+            content=base64.b64encode(patched_content.encode()).decode(),
+            patches_applied=ops,
+        ))
+        total_mutations += len(ops)
+
+        for finding in artifact_findings:
+            if await _notify_mutation(client, request, finding, deduplicated, verdict):
+                ops_notified = True
 
     if total_mutations > 0:
         re_scan_artifacts = []
@@ -170,11 +259,20 @@ async def _run_mutation_pipeline(
 
             if gate.should_retry_mutation(retry_count, pre_findings, post_findings):
                 retry_count += 1
-                remaining_patchable = [f for f in post_findings if f.get("patchable", False)]
+                remaining_patchable = [
+                    f for f in post_findings
+                    if f.get("patchable", False) and f.get("artifact") not in [pa.name for pa in patched_artifacts_output]
+                ]
                 if remaining_patchable:
-                    return await _run_mutation_pipeline(
+                    result = await _run_mutation_pipeline(
                         client, request, post_scan, remaining_patchable, retry_count
                     )
+                    result["total_mutations"] += total_mutations
+                    result["patched_artifacts_output"] = patched_artifacts_output + result["patched_artifacts_output"]
+                    result["escalated_findings"] = escalated_findings + result["escalated_findings"]
+                    result["compatibility_verdict"] = _pick_verdict(result["compatibility_verdict"], compatibility_verdict)
+                    result["ops_notified"] = ops_notified or result["ops_notified"]
+                    return result
 
             current_scan = post_scan
 
@@ -184,6 +282,9 @@ async def _run_mutation_pipeline(
         "patched_artifacts_output": patched_artifacts_output,
         "retry_count": retry_count,
         "final_scan_data": current_scan,
+        "escalated_findings": escalated_findings,
+        "compatibility_verdict": compatibility_verdict,
+        "ops_notified": ops_notified,
     }
 
 
@@ -220,6 +321,9 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
     total_mutations = 0
     patched_artifacts_output: list[PatchedArtifact] = []
     retry_count = 0
+    compatibility_verdict = "SKIPPED"
+    ops_notified = False
+    escalated_findings: list[dict] = []
 
     if patchable_findings:
         result = await _run_mutation_pipeline(
@@ -230,8 +334,11 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
         retry_count = result["retry_count"]
         scan_data = result["final_scan_data"]
         findings = scan_data.get("findings", [])
+        compatibility_verdict = result["compatibility_verdict"]
+        ops_notified = result["ops_notified"]
+        escalated_findings = result["escalated_findings"]
 
-    all_findings_post = list(findings) + non_patchable
+    all_findings_post = list(findings) + non_patchable + escalated_findings
     risk_score = scan_data.get("risk_score", 0.0)
     overall_severity = scan_data.get("overall_severity", "INFO")
 
@@ -268,6 +375,8 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
         scan_id=scan_data.get("scan_id", ""),
         mutations_applied=total_mutations,
         mutator_retries=retry_count,
+        compatibility_verdict=compatibility_verdict,
+        ops_notified=ops_notified,
         blocking_findings=[
             {
                 "rule_id": f.get("rule_id", "?"),

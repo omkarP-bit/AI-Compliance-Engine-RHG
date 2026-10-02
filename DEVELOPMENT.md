@@ -86,6 +86,61 @@
 | `infra/terraform/lambda.tf` | ✅ Done | Lambda functions (ace-scan, alert-dispatcher), IAM role, API Gateway v2, SQS FIFO, ECR, Security Group |
 | Lambda tests | ✅ Done | 4 tests: API Gateway event, OPA down, health, SQS dispatch |
 
+### Phase 11 — LLM Provider Abstraction (Nebius / Nemotron) ✅
+
+| Component | Status | Notes |
+|---|---|---|
+| `services/ace/llm/base.py` | ✅ Done | `LLMMessage`/`LLMResponse` dataclasses, `LLMProvider` ABC with `provider_name`, `model_name`, `complete()` |
+| `services/ace/llm/nebius.py` | ✅ Done | NVIDIA Nemotron over Nebius Token Factory's OpenAI-compatible `/v1/chat/completions`; no Nebius SDK needed |
+| `services/ace/llm/provider.py` | ✅ Done | `get_provider()` factory keyed on `MODEL_PROVIDER`, `supported_providers()` |
+| Tests | ✅ Done | 11 tests: missing key, bearer header, base-URL/model overrides, usage parsing, factory errors |
+
+`NebiusProvider.__init__` never raises on a missing key. Agents are constructed at
+import time in several modules, so a hard `KeyError` there would take down the
+whole service in deployments that do not use agentic mode. The error is deferred
+to `complete()`, where it is actionable (`NebiusConfigurationError`).
+
+### Phase 12 — LangGraph Agentic Release Loop ✅
+
+| Component | Status | Notes |
+|---|---|---|
+| `services/ace/agents/state.py` | ✅ Done | `AgentState` TypedDict, reducer-backed audit/result lists, `initial_state()`, `should_block()` |
+| `services/ace/agents/context_agent.py` | ✅ Done | Explains *why* a finding matters; never decides policy |
+| `services/ace/agents/remediation_agent.py` | ✅ Done | Proposes PATCH/SKIP/ESCALATE; applies nothing |
+| `services/ace/agents/verification_agent.py` | ✅ Done | Interprets re-scan + compatibility verdicts |
+| `services/ace/agents/graph.py` | ✅ Done | 8-node state machine: analyzing → reasoning → plan_remediation → mutating → compatibility_check → verification → (retry \| next_finding) → gate |
+| `services/ace/engine/artifact_codec.py` | ✅ Done | Parser-aligned decode/encode + `policy_path_for()`; reuses `PARSERS`/`POLICY_MAP` from `api/routes.py` |
+| `services/ace/api/compatibility.py` | ✅ Done | Extracted `run_compatibility_check()` so the graph can call it in-process instead of over HTTP |
+| `services/ace/mutator/patch_engine.py` | ✅ Done | Moved here from `rhg/`; `rhg/mutator/patch_engine.py` is now a re-export shim |
+| Tests | ✅ Done | 28 agent/state unit tests + 37 graph integration tests |
+
+**Deviations from the Phase 12 sketch, all deliberate:**
+
+| Sketch said | Actual | Why |
+|---|---|---|
+| `AgentState` as a `@dataclass` | `TypedDict` | LangGraph 1.x passes a *dict* to every node and returns a dict from `ainvoke` even with a dataclass schema, so `result.decision` would raise `AttributeError` |
+| Read `state.findings[0]` | Drains a `pending` queue | The sketch silently discarded every finding after the first; a manifest with three violations now gets three remediation cycles |
+| Hardcoded `yaml.safe_load`/`yaml.dump` | `artifact_codec` per artifact type | YAML-only mutation corrupts Terraform plan JSON, Dockerfiles and GHA workflows |
+| `from ..mutator.patch_engine import PatchEngine` | `ace.mutator.patch_engine` | The engine only existed under `rhg/`; importing it from `ace` was impossible |
+| `from ..api.compatibility import run_compatibility_check` | Function now exists | It did not exist — only the HTTP route did |
+| Route on `current_state` | Explicit `agent_next_action` field | Overloading `current_state` for routing collided with its use as the audit-trail label |
+| `ainvoke(state)` | `run_release_loop(graph, state)` | LangGraph's default 25 super-step limit overflows: each finding costs 5 nodes and each retry 4 more, so a run dies *after* patches are applied. `recursion_config()` sizes the limit |
+
+**Safety invariants (enforced in code, not just in the agent prompts):**
+
+- An `INCOMPATIBLE` compatibility verdict escalates even if the verification
+  agent returns `GATE` or `RETRY`. Enforced in `VerificationAgent._parse` *and*
+  in the graph — the agent is an untrusted component.
+- A `PATCH` plan with an empty `proposed_patches` list is downgraded to
+  `ESCALATE`; a no-op must not be reported as a fix.
+- A `SKIP` is routed straight past the mutator. Routing it through `mutating`
+  would apply an empty patch list and report the artifact as patched.
+- Low confidence, `requires_human_review`, a retry that is unsafe or out of
+  budget, a missing artifact, an undecodable artifact, a malformed JSON pointer,
+  and any OPA outage during re-scan all fail **closed** to `BLOCK`.
+- Without `NEBIUS_API_KEY`, agentic runs fail closed to `BLOCK` rather than
+  shipping unreviewed patches.
+
 ### Samples
 
 | File | Status |
@@ -136,8 +191,8 @@
 
 | Item | Spec Says | Actual Code | Impact |
 |---|---|---|---|
-| **LLM provider** | Anthropic Claude (`ChatAnthropic`, `claude-sonnet-4-6`) | Groq (`ChatGroq`, `llama-3.3-70b-versatile`) | Functional, just different model — requires `GROQ_API_KEY` instead of `ANTHROPIC_API_KEY` |
-| **Terraform policy bundle** | `policies/cis-terraform/main.rego` referenced via `POLICY_MAP` | No `policies/cis-terraform/` directory exists | OPA will return empty results for Terraform scans (silent no-op rather than error) |
+| **LLM provider** | Anthropic Claude (`ChatAnthropic`, `claude-sonnet-4-6`) | Groq (`ChatGroq`, `llama-3.3-70b-versatile`) for the v2 artifact agent, plus a provider abstraction (`ace/llm/`) whose only registered backend is Nebius Token Factory serving NVIDIA Nemotron for the v3 loop | Functional — needs `GROQ_API_KEY` for v2 and `NEBIUS_API_KEY` for v3. Adding a backend means one entry in `ace/llm/provider.PROVIDERS` |
+| **Terraform policy bundle** | `policies/cis-terraform/main.rego` referenced via `POLICY_MAP` | `policies/cis-terraform/` **now exists** and `opa test policies/` passes | Resolved — Terraform scans are no longer a silent no-op |
 | **FastAPI event handler** | Not mentioned | Uses deprecated `@app.on_event("startup")` instead of lifespan | Works but shows deprecation warning in test output |
 | **OPA health exception handling** | Catches `Exception` | Catches `httpx.RequestError, httpx.HTTPStatusError` | More specific, better practice |
 | **Slack emoji** | Has emoji in decision labels (`✅`, `🚫`, `🔧`) | Decision labels are text-only ("Deployment allowed") | Slightly less visual — emoji still in header via `SEVERITY_EMOJI` |
@@ -162,13 +217,14 @@
 
 | Suite | Tests | Status |
 |---|---|---|
-| ACE Engine (parsers, scorer, OPA client, API, agents, alerts, metrics, websocket) | 84 | ✅ All pass |
-| RHG Gate (evaluator, patch engine, helpers, API) | 36 | ✅ All pass |
+| ACE Engine (parsers, scorer, OPA client, API, agents, graph, alerts, metrics, websocket, LLM) | 201 | ✅ All pass |
+| RHG Gate (evaluator, patch engine, helpers, API) | 40 | ✅ All pass |
 | CLI | 4 | ✅ All pass |
-| Lambda | 4 | ✅ All pass |
-| **Total** | **128** | **✅ 100%** |
+| **Total** | **245** | **✅ 100%** |
 
-**Coverage:** 94% across `services/ace/`
+`opa test policies/` passes with no failures.
+
+**Coverage:** 94% across `services/ace/` (stale — not re-measured since Phase 12 landed)
 
 ---
 
@@ -195,4 +251,4 @@
 ---
 
 *ACE+RHG v0.1 — Development Status*
-*120 tests passing, 94% coverage, codebase substantially ahead of documented spec*
+*245 tests passing, codebase substantially ahead of documented spec; Phases 11–12 landed*

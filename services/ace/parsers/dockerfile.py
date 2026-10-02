@@ -5,7 +5,7 @@ from .base import BaseParser, NormalizedArtifact
 
 class DockerfileParser(BaseParser):
     def supports(self, filename: str) -> bool:
-        return filename == "Dockerfile" or filename.endswith(".dockerfile")
+        return "dockerfile" in filename.lower()
 
     def parse(self, content: str, name: str) -> NormalizedArtifact:
         instructions = self._parse_instructions(content)
