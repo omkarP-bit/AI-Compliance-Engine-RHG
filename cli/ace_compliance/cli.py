@@ -1,56 +1,114 @@
 import asyncio
-import base64
 import json
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 import click
 import httpx
 
 from ace_compliance.config import EndpointError, resolve_ace_url
+from ace_compliance.helpers import (
+    PROFILE_CHOICES,
+    SEVERITY_CHOICES,
+    SEVERITY_ORDER,
+    GlobalOptions,
+    collect_artifacts,
+    collect_backend,
+    pick,
+)
 
-SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
+
+def _package_version() -> str:
+    try:
+        return _pkg_version("ace-compliance")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
 
 
 @click.group()
-def cli():
+@click.option("--profile", type=click.Choice(PROFILE_CHOICES), default=None,
+              envvar="ACE_PROFILE",
+              help="Deployment profile: local, cloud, or auto. Default for all commands.")
+@click.option("--ace-url", default=None, help="ACE service URL (default for all commands).")
+@click.option("--rhg-url", default=None, help="RHG service URL (default for all commands).")
+@click.option("--timeout", type=float, default=None,
+              help="Request timeout in seconds (default for all commands).")
+@click.option("--output", type=click.Choice(["text", "json"]), default=None,
+              help="Output format (default for all commands).")
+@click.option("-q", "--quiet", is_flag=True, default=False,
+              help="Reduce output to essentials.")
+@click.option("-v", "--verbose", is_flag=True, default=False,
+              help="Print resolved endpoints and request details to stderr.")
+@click.version_option(version=_package_version(), prog_name="ace")
+@click.pass_context
+def cli(ctx, profile, ace_url, rhg_url, timeout, output, quiet, verbose):
     """ace-compliance — scan infrastructure before it ships."""
+    ctx.obj = GlobalOptions(profile, ace_url, rhg_url, timeout, output, quiet, verbose)
 
 
 @cli.command()
 @click.argument("paths", nargs=-1, type=click.Path(exists=True))
 @click.option("--env", default="production", help="Target environment")
-@click.option("--output", type=click.Choice(["text", "json"]), default="text")
-@click.option("--fail-on", type=click.Choice(["CRITICAL", "HIGH", "MEDIUM", "LOW"]), default="HIGH")
-@click.option("--profile", type=click.Choice(["local", "cloud", "auto"]), default=None, envvar="ACE_PROFILE",
-              help="Deployment profile: local (localhost), cloud (ACE_URL), or auto (default)")
+@click.option("--output", type=click.Choice(["text", "json"]), default=None,
+              help="Output format (overrides the group default)")
+@click.option("--fail-on", type=click.Choice(SEVERITY_CHOICES), default="HIGH")
+@click.option("--backend-path", multiple=True, type=click.Path(exists=True),
+              help="Backend source file or directory to analyze (repeatable)")
+@click.option("--all", "scan_all", is_flag=True, help="Scan all supported artifacts in current directory")
+@click.option("--infra", is_flag=True, help="Scan common infra dirs (k8s, infra, manifests, terraform)")
+@click.option("--backend", "scan_backend", is_flag=True, help="Auto-scan common backend dirs (services, src, app, backend)")
+@click.option("--profile", type=click.Choice(PROFILE_CHOICES), default=None,
+              envvar="ACE_PROFILE", help="Deployment profile (overrides the group default)")
 @click.option("--ace-url", default=None, help="ACE service URL (overrides the profile)")
-def scan(paths, env, output, fail_on, profile, ace_url):
+@click.option("--timeout", type=float, default=None, help="Request timeout in seconds")
+@click.pass_context
+def scan(ctx, paths, env, output, fail_on, backend_path, scan_all, infra, scan_backend, profile, ace_url, timeout):
     """Scan one or more artifact files for compliance violations."""
+    g = ctx.obj
+    output = pick(output, g.output, default="text")
+    timeout = pick(timeout, g.timeout, default=30.0)
     try:
-        ace_url = resolve_ace_url(profile, ace_url)
+        ace_url = resolve_ace_url(pick(profile, g.profile), pick(ace_url, g.ace_url))
     except EndpointError as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(2)
-    if not paths:
-        paths = ("." ,)
-    asyncio.run(_scan(list(paths), env, output, fail_on, ace_url))
+    
+    backend_paths = list(backend_path)
+    scan_paths = list(paths)
+    
+    if scan_all and not scan_paths:
+        scan_paths = ["."]
+    if infra and not scan_paths:
+        for d in ["k8s", "infra", "manifests", "terraform", "helm", "charts"]:
+            if Path(d).exists():
+                scan_paths.append(d)
+        if not scan_paths:
+            scan_paths = ["."]
+    if scan_backend:
+        for d in ["services", "src", "app", "backend", "api", "server"]:
+            if Path(d).exists() and d not in backend_paths:
+                backend_paths.append(d)
+        # Also add backend dirs to scan if no explicit paths
+        if not scan_paths or scan_paths == (".",):
+            for d in ["services", "src", "app", "backend", "api", "server"]:
+                if Path(d).exists() and d not in scan_paths:
+                    scan_paths.append(d)
+    
+    if not scan_paths:
+        scan_paths = (".",)
+    asyncio.run(_scan(scan_paths, env, output, fail_on, ace_url, timeout, g.verbose, g.quiet, backend_paths))
 
 
-async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: str):
-    artifacts = []
-
-    for path_str in paths:
-        p = Path(path_str)
-        if p.is_dir():
-            artifacts.extend(_make_artifact(f) for f in _iter_artifacts(p))
-        else:
-            artifacts.append(_make_artifact(p))
-
-    if not artifacts:
+async def _scan(paths, env, output, fail_on, ace_url, timeout, verbose, quiet, backend_paths=None):
+    artifacts = collect_artifacts(paths)
+    if not artifacts and not (backend_paths):
         click.echo("No supported artifacts found.", err=True)
         raise SystemExit(1)
 
     async with httpx.AsyncClient() as client:
+        if verbose:
+            click.echo(f"-> POST {ace_url}/ace/scan", err=True)
         try:
             resp = await client.post(
                 f"{ace_url}/ace/scan",
@@ -58,8 +116,9 @@ async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: 
                     "pipeline_id": "cli-scan",
                     "environment": env,
                     "artifacts": artifacts,
+                    "backend_source": collect_backend(backend_paths or []),
                 },
-                timeout=30.0,
+                timeout=timeout,
             )
             resp.raise_for_status()
             result = resp.json()
@@ -75,53 +134,21 @@ async def _scan(paths: list[str], env: str, output: str, fail_on: str, ace_url: 
     if output == "json":
         click.echo(json.dumps(result, indent=2))
     else:
-        _print_text_report(result)
+        _print_text_report(result, quiet=quiet)
 
     overall = result.get("overall_severity", "INFO")
     if SEVERITY_ORDER.get(overall, 0) >= SEVERITY_ORDER.get(fail_on, 0):
         raise SystemExit(1)
 
 
-def _iter_artifacts(base: Path):
-    seen: set[Path] = set()
-    for f in base.rglob("*"):
-        if not f.is_file():
-            continue
-        name = f.name.lower()
-        if name.endswith((".yaml", ".yml", ".tf")):
-            seen.add(f.resolve())
-        elif "dockerfile" in name:
-            seen.add(f.resolve())
-    return sorted(seen)
-
-
-def _make_artifact(path: Path) -> dict:
-    name = path.name
-    ext = path.suffix
-    if "dockerfile" in name.lower():
-        artifact_type = "dockerfile"
-    elif name in (
-        "docker-compose.yml",
-        "docker-compose.yaml",
-        "compose.yml",
-        "compose.yaml",
-    ) or (name.startswith("docker-compose.") and name.endswith((".yml", ".yaml"))):
-        artifact_type = "docker_compose"
-    elif ext in (".yaml", ".yml"):
-        artifact_type = "kubernetes"
-    elif ext in (".tf", ".tf.json"):
-        artifact_type = "terraform"
-    else:
-        artifact_type = "kubernetes"
-    return {
-        "type": artifact_type,
-        "name": name,
-        "content": base64.b64encode(path.read_bytes()).decode(),
-    }
-
-
-def _print_text_report(result: dict):
+def _print_text_report(result: dict, quiet: bool = False):
     findings = result.get("findings", [])
+    if quiet:
+        click.echo(
+            f"{result.get('overall_severity', '?')} "
+            f"risk={result.get('risk_score', '?')}/10 findings={len(findings)}"
+        )
+        return
     click.echo("")
     click.echo("=" * 60)
     click.echo(f"  Risk Score:  {result.get('risk_score', '?')}/10")
@@ -140,9 +167,82 @@ def _print_text_report(result: dict):
 
 
 from ace_compliance.agent_cli import agent  # noqa: E402
+from ace_compliance.auth_cli import auth  # noqa: E402
+from ace_compliance.history_cli import history  # noqa: E402
+from ace_compliance.service_cli import (  # noqa: E402
+    config,
+    health,
+    mutate,
+    scan_and_mutate,
+    submit,
+)
 
 cli.add_command(agent)
+cli.add_command(health)
+cli.add_command(config)
+cli.add_command(mutate)
+cli.add_command(scan_and_mutate)
+from ace_compliance.admin_cli import admin  # noqa: E402
+from ace_compliance.agent_cli import agent  # noqa: E402
+from ace_compliance.service_cli import (  # noqa: E402
+    config,
+    health,
+    mutate,
+    scan_and_mutate,
+)
+
+cli.add_command(agent)
+cli.add_command(health)
+cli.add_command(config)
+cli.add_command(mutate)
+cli.add_command(scan_and_mutate)
+cli.add_command(submit)
+cli.add_command(history)
+cli.add_command(auth)
+cli.add_command(admin)
 
 
 if __name__ == "__main__":
     cli()
+
+
+@cli.command(name="init")
+@click.pass_context
+def init_cmd(ctx):
+    """Quick setup guide for new orgs and repos."""
+    click.echo("ACE Setup Guide")
+    click.echo("================")
+    click.echo("")
+    click.echo("1) Admin: Create org/project and generate API key")
+    click.echo("   ace create-org <org> [--name ...]")
+    click.echo("   ace add-repo <org> <project> [--repo owner/repo]")
+    click.echo("   ace gen-key <org> <project> [--scopes scan,submit]")
+    click.echo("")
+    click.echo("2) Use API key")
+    click.echo("   ace login --api-key ace_sk_... [--org <org>]")
+    click.echo("   ace whoami")
+    click.echo("")
+    click.echo("3) Run gate")
+    click.echo("   ace scan ./k8s --profile local")
+    click.echo("   ace submit ./k8s --repo owner/repo --branch main --env prod --fail-on HIGH")
+    click.echo("")
+    click.echo("4) View history")
+    click.echo("   ace history --limit 10")
+from ace_compliance.admin_cli import (  # noqa: E402
+    add_repo_alias,
+    create_org_alias,
+    gen_key_alias,
+)
+from ace_compliance.auth_cli import (  # noqa: E402
+    login_alias,
+    logout_alias,
+    whoami_alias,
+)
+
+cli.add_command(login_alias)
+cli.add_command(whoami_alias)
+cli.add_command(logout_alias)
+cli.add_command(create_org_alias)
+cli.add_command(add_repo_alias)
+cli.add_command(gen_key_alias)
+cli.add_command(init_cmd)

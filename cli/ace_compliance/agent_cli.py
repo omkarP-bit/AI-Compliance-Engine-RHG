@@ -16,43 +16,38 @@ Exit code is non-zero when the gate blocks, when the residual severity meets
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-from pathlib import Path
 
 import click
 import httpx
 
 from ace_compliance.config import EndpointError, resolve_ace_url, resolve_rhg_url
-
-SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
-SEVERITY_CHOICE = click.Choice(["CRITICAL", "HIGH", "MEDIUM", "LOW"])
-LANGUAGE_BY_SUFFIX = {
-    ".py": "python",
-    ".js": "node",
-    ".ts": "node",
-    ".go": "go",
-    ".java": "java",
-    ".rb": "ruby",
-    ".rs": "rust",
-}
-_IGNORE_DIRS = {".git", "node_modules", "__pycache__", "dist", "build", ".venv", "venv"}
+from ace_compliance.helpers import (
+    PROFILE_CHOICES,
+    SEVERITY_CHOICES,
+    SEVERITY_ORDER,
+    collect_artifacts,
+    collect_backend,
+    pick,
+)
 
 
 @click.command(name="agent")
 @click.argument("paths", nargs=-1, type=click.Path(exists=True))
 @click.option("--env", default="production", help="Target environment")
-@click.option("--output", type=click.Choice(["text", "json"]), default="text")
-@click.option("--fail-on", type=SEVERITY_CHOICE, default="HIGH",
+@click.option("--output", type=click.Choice(["text", "json"]), default=None,
+              help="Output format (overrides the group default)")
+@click.option("--fail-on", type=click.Choice(SEVERITY_CHOICES), default="HIGH",
               help="Exit non-zero when residual severity is at least this level")
 @click.option("--fail-on-escalation", is_flag=True, default=False,
               help="Exit non-zero when the loop escalates to a human")
 @click.option("--via", type=click.Choice(["ace", "rhg"]), default="ace",
               help="Call ACE /ace/agent directly (default) or the RHG /rhg/agentic-submit proxy")
-@click.option("--profile", type=click.Choice(["local", "cloud", "auto"]), default=None, envvar="ACE_PROFILE",
-              help="Deployment profile: local (localhost), cloud (ACE_URL/RHG_URL), or auto (default)")
+@click.option("--profile", type=click.Choice(PROFILE_CHOICES), default=None,
+              envvar="ACE_PROFILE", help="Deployment profile (overrides the group default)")
 @click.option("--ace-url", default=None, help="ACE service URL (overrides the profile; used with --via ace)")
 @click.option("--rhg-url", default=None, help="RHG service URL (overrides the profile; used with --via rhg)")
+@click.option("--timeout", type=float, default=None, help="Request timeout in seconds (default 300)")
 @click.option("--backend-path", multiple=True, type=click.Path(exists=True),
               help="Backend source file or directory to analyze (repeatable; .env is never sent)")
 @click.option("--repo", default="unknown/repo", show_default=True,
@@ -63,33 +58,30 @@ _IGNORE_DIRS = {".git", "node_modules", "__pycache__", "dist", "build", ".venv",
 @click.option("--max-retries", type=int, default=None, help="Max remediation retries per finding (ACE only)")
 @click.option("--confidence-threshold", type=float, default=None,
               help="Minimum agent confidence to patch without escalating (ACE only)")
-@click.option("--block-on-severity", type=SEVERITY_CHOICE, default=None,
+@click.option("--block-on-severity", type=click.Choice(SEVERITY_CHOICES), default=None,
               help="Severity at/above which a finding blocks the release (ACE only)")
-def agent(paths, env, output, fail_on, fail_on_escalation, profile, via, ace_url, rhg_url,
-          backend_path, repo, branch, model_provider, max_retries,
+@click.pass_context
+def agent(ctx, paths, env, output, fail_on, fail_on_escalation, profile, via, ace_url, rhg_url,
+          timeout, backend_path, repo, branch, model_provider, max_retries,
           confidence_threshold, block_on_severity):
     """Scan artifacts and run the agentic remediation loop."""
-    from ace_compliance.cli import _iter_artifacts, _make_artifact
+    g = ctx.obj
+    output = pick(output, g.output, default="text")
+    timeout = pick(timeout, g.timeout, default=300.0)
 
     if not paths:
         paths = (".",)
 
-    artifacts: list[dict] = []
-    for path_str in paths:
-        p = Path(path_str)
-        if p.is_dir():
-            artifacts.extend(_make_artifact(f) for f in _iter_artifacts(p))
-        else:
-            artifacts.append(_make_artifact(p))
-
+    artifacts = collect_artifacts(paths)
     if not artifacts:
         click.echo("No supported artifacts found.", err=True)
         raise SystemExit(1)
 
-    backend_source = _collect_backend(backend_path)
+    backend_source = collect_backend(backend_path)
 
     try:
-        base_url = resolve_rhg_url(profile, rhg_url) if via == "rhg" else resolve_ace_url(profile, ace_url)
+        base_url = resolve_rhg_url(pick(profile, g.profile), pick(rhg_url, g.rhg_url)) if via == "rhg" \
+            else resolve_ace_url(pick(profile, g.profile), pick(ace_url, g.ace_url))
     except EndpointError as e:
         click.echo(f"Error: {e}", err=True)
         raise SystemExit(2)
@@ -128,38 +120,19 @@ def agent(paths, env, output, fail_on, fail_on_escalation, profile, via, ace_url
         endpoint = "/ace/agent"
 
     asyncio.run(
-        _run_agent(base_url, endpoint, payload, output, fail_on, fail_on_escalation)
+        _run_agent(base_url, endpoint, payload, output, fail_on, fail_on_escalation,
+                   timeout, g.verbose, g.quiet)
     )
 
 
-def _collect_backend(paths) -> list[dict]:
-    files: list[Path] = []
-    for path_str in paths:
-        p = Path(path_str)
-        if p.is_dir():
-            for f in p.rglob("*"):
-                if any(part in _IGNORE_DIRS for part in f.parts):
-                    continue
-                if f.is_file() and f.suffix in LANGUAGE_BY_SUFFIX:
-                    files.append(f)
-        elif p.is_file() and p.suffix in LANGUAGE_BY_SUFFIX:
-            files.append(p)
-    return [_make_backend_file(f) for f in sorted(set(files))]
-
-
-def _make_backend_file(path: Path) -> dict:
-    return {
-        "language": LANGUAGE_BY_SUFFIX.get(path.suffix, "unknown"),
-        "filename": path.name,
-        "content": base64.b64encode(path.read_bytes()).decode(),
-    }
-
-
-async def _run_agent(base_url, endpoint, payload, output, fail_on, fail_on_escalation):
+async def _run_agent(base_url, endpoint, payload, output, fail_on, fail_on_escalation,
+                     timeout, verbose, quiet):
     url = f"{base_url}{endpoint}"
     async with httpx.AsyncClient() as client:
+        if verbose:
+            click.echo(f"-> POST {url}", err=True)
         try:
-            resp = await client.post(url, json=payload, timeout=300.0)
+            resp = await client.post(url, json=payload, timeout=timeout)
             resp.raise_for_status()
             result = resp.json()
         except httpx.HTTPStatusError as e:
@@ -184,7 +157,7 @@ async def _run_agent(base_url, endpoint, payload, output, fail_on, fail_on_escal
     if output == "json":
         click.echo(json.dumps(result, indent=2))
     else:
-        _print_agent_report(result)
+        _print_agent_report(result, quiet=quiet)
 
     _enforce(result, fail_on, fail_on_escalation)
 
@@ -206,8 +179,14 @@ def _enforce(result: dict, fail_on: str, fail_on_escalation: bool) -> None:
         raise SystemExit(1)
 
 
-def _print_agent_report(result: dict) -> None:
+def _print_agent_report(result: dict, quiet: bool = False) -> None:
     decision = result.get("decision", "?")
+    if quiet:
+        click.echo(
+            f"{decision} mutations={result.get('mutations_applied', 0)} "
+            f"escalated={'yes' if result.get('escalated') else 'no'}"
+        )
+        return
     color = {"ALLOW": "green", "PATCHED": "yellow", "BLOCK": "red"}.get(decision, "white")
     click.echo("")
     click.echo("=" * 60)

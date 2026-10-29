@@ -63,3 +63,50 @@ def logout():
         click.echo("Logged out.")
     else:
         click.echo("No saved credentials.")
+
+
+# Friendly aliases
+@click.command(name="login")
+@click.option("--api-key", default=None)
+@click.option("--org", default=None)
+@click.pass_context
+def login_alias(ctx, api_key, org):
+    if not api_key:
+        api_key = click.prompt("API key", hide_input=True)
+    path = _cred_path()
+    data = {"api_key": api_key}
+    if org:
+        data["org"] = org
+    path.write_text(__import__('json').dumps(data, indent=2))
+    __import__('os').chmod(path, 0o600)
+    click.echo(f"Saved credentials to {path}")
+
+
+@click.command(name="whoami")
+def whoami_alias():
+    import json
+    import os
+    if os.environ.get("ACE_API_KEY"):
+        click.echo("ACE_API_KEY is set in environment")
+        return
+    path = _cred_path()
+    if not path.exists():
+        click.echo("Not logged in. Run 'ace login --api-key ...'")
+        return
+    try:
+        data = json.loads(path.read_text())
+        click.echo(f"api_key: {data.get('api_key','')[:12]}...")
+        if data.get("org"):
+            click.echo(f"org: {data['org']}")
+    except Exception as e:
+        click.echo(f"Error reading credentials: {e}", err=True)
+
+
+@click.command(name="logout")
+def logout_alias():
+    path = _cred_path()
+    if path.exists():
+        path.unlink()
+        click.echo("Logged out.")
+    else:
+        click.echo("No saved credentials.")
