@@ -17,7 +17,8 @@ from typing import Annotated
 
 import httpx
 from ace.alerts.router import AlertPayload, AlertSeverity, build_alert_router
-from ace.metrics.prometheus import track_gate_decision
+from ace.metrics.factory import get_metrics_client
+from common.storage import ActivityRecord, get_storage_backend
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -26,6 +27,8 @@ from rhg.api.routes import SubmitRequest, get_ace_client
 router = APIRouter(prefix="/rhg", tags=["RHG"])
 ACE_URL = os.environ.get("ACE_URL", "http://localhost:8000")
 alert_router = build_alert_router()
+_metrics = get_metrics_client()
+_storage = get_storage_backend()
 
 
 class PatchedArtifact(BaseModel):
@@ -76,9 +79,38 @@ async def agentic_submit(
     decision = data.get("decision", "BLOCK")
     findings = list(data.get("findings", []))
     blocked = list(data.get("blocked_findings", []))
-    report_url = data.get("report_url", "")
+    report_url = data.get("report_url", "") or (
+        f"{os.environ.get('DASHBOARD_URL', 'http://localhost:3000')}/d/ace-rhg-overview"
+    )
 
-    track_gate_decision(decision, request.environment)
+    try:
+        _metrics.increment("gate_decisions_total", labels={"decision": decision, "environment": request.environment})
+    except Exception:
+        pass
+    try:
+        from ace.metrics.prometheus import track_gate_decision
+
+        track_gate_decision(decision, request.environment)
+    except Exception:
+        pass
+    try:
+        _storage.record_activity(
+            ActivityRecord(
+                event_type="gate.decision.agentic",
+                scan_id=data.get("scan_id"),
+                repo=request.repo,
+                branch=request.branch,
+                environment=request.environment,
+                overall_severity=data.get("overall_severity"),
+                findings_count=len(findings),
+                mutations_applied=data.get("mutations_applied") or data.get("patched_count") or 0,
+                gate_decision=decision,
+                triggered_by="ci",
+                artifact_count=len(request.artifacts),
+            )
+        )
+    except Exception:
+        pass
     background_tasks.add_task(
         alert_router.dispatch,
         AlertPayload(

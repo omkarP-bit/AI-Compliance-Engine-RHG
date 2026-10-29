@@ -7,7 +7,8 @@ from typing import Annotated
 
 import httpx
 from ace.alerts.router import AlertPayload, AlertSeverity, build_alert_router
-from ace.metrics.prometheus import track_gate_decision
+from ace.metrics.factory import get_metrics_client
+from common.storage import ActivityRecord, get_storage_backend
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -21,6 +22,8 @@ gate = GateEvaluator(
 )
 ACE_URL = os.environ.get("ACE_URL", "http://localhost:8000")
 alert_router = build_alert_router()
+_metrics = get_metrics_client()
+_storage = get_storage_backend()
 
 
 def _dispatch_alert(background_tasks: BackgroundTasks, payload: AlertPayload) -> None:
@@ -362,7 +365,37 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
         "/d/ace-rhg-overview"
     )
 
-    track_gate_decision(gate_result.decision.value, request.environment)
+    try:
+        _metrics.increment(
+            "gate_decisions_total",
+            labels={"decision": gate_result.decision.value, "environment": request.environment},
+        )
+    except Exception:
+        pass
+    try:
+        from ace.metrics.prometheus import track_gate_decision
+
+        track_gate_decision(gate_result.decision.value, request.environment)
+    except Exception:
+        pass
+    try:
+        _storage.record_activity(
+            ActivityRecord(
+                event_type="gate.decision",
+                scan_id=scan_data.get("scan_id"),
+                repo=request.repo,
+                branch=request.branch,
+                environment=request.environment,
+                overall_severity=overall_severity,
+                findings_count=len(all_findings_post),
+                mutations_applied=total_mutations,
+                gate_decision=gate_result.decision.value,
+                triggered_by="ci",
+                artifact_count=len(request.artifacts),
+            )
+        )
+    except Exception:
+        pass
     _dispatch_alert(background_tasks, AlertPayload(
         event_type="gate.decision",
         pipeline_id=request.pipeline_id,
