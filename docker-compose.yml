@@ -69,7 +69,7 @@ services:
     environment:
       ACE_URL: http://ace:8000
       BLOCK_ON_SEVERITY: ${BLOCK_ON_SEVERITY:-HIGH}
-      API_MIN_SEVERITY: ${API_MIN_SEVERITY:-INFO}
+      # API_MIN_SEVERITY: ${API_MIN_SEVERITY:-INFO}
       MAX_MUTATION_RETRIES: "3"
       REDIS_URL: redis://redis:6379
       RHG_METRICS_PORT: "9091"
