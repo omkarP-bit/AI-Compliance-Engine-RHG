@@ -1,0 +1,5 @@
+{
+  "name": "api-security",
+  "version": "1.0.0",
+  "description": "API/OWASP security checks for application source code"
+}

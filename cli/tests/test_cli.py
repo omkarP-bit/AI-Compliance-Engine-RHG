@@ -19,6 +19,11 @@ class TestCLI:
     def setup_method(self):
         self.runner = CliRunner()
 
+    def test_version_flag(self):
+        result = self.runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
+        assert "ace" in result.output
+
     def test_scan_exits_nonzero_on_high_findings(self, tmp_path):
         f = tmp_path / "deploy.yaml"
         f.write_text("apiVersion: v1\nkind: Pod")

@@ -21,9 +21,10 @@ RUN pip install --no-cache-dir -r ace-requirements.txt -r rhg-requirements.txt
 
 COPY services/ace/ ace/
 COPY services/rhg/ rhg/
+COPY services/common/ common/
 COPY policies/ policies/
 
-ENV PYTHONPATH=/var/task
+ENV PYTHONPATH=/var/task:/var/task/ace:/var/task/rhg
 
 EXPOSE 8000 8001 9090 9091
 

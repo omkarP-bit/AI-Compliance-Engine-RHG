@@ -1,7 +1,7 @@
 # ACE+RHG — Development Status Report
 
 > Generated from full codebase audit against the original DEVELOPMENT.md spec.
-> **Tests: 326 passing | Last verified: 2026-10-13**
+> **Tests: 346 passing | Last verified: 2026-10-13**
 
 ---
 
@@ -250,6 +250,16 @@ backend extractor.
 | **npm package** | Added (`plugins/github-actions/`) |
 | **GitLab/Jenkins/ArgoCD integrations** | Added under `plugins/` |
 
+### Phase 16 — CLI Control Surface ✅
+
+| Component | Status | Notes |
+|---|---|---|
+| `cli/ace_compliance/helpers.py` | ✅ Done | Shared `GlobalOptions`/`pick` merging, artifact discovery/encoding, backend-source collection |
+| `cli/ace_compliance/cli.py` | ✅ Done | Group-level globals (`--profile/--ace-url/--rhg-url/--timeout/--output/-q/-v`) with per-command override precedence |
+| `cli/ace_compliance/service_cli.py` | ✅ Done | `ace health`, `ace config`, `ace mutate`, `ace scan-and-mutate`, `ace submit` (`--write-dir`) mapped to their real endpoints |
+| `ace --version` | ✅ Done | Reports the installed `ace-compliance` version via `importlib.metadata` |
+| CLI tests | ✅ Done | 19 new tests: health/config/mutate/scan-and-mutate/submit + global-option precedence (CLI total 49) |
+
 ---
 
 ## Test Results
@@ -258,9 +268,9 @@ backend extractor.
 |---|---|---|
 | ACE (parsers, scorer, OPA client, API, agents, graph, alerts, metrics, websocket, LLM, policies) | 245 | ✅ All pass |
 | RHG Gate (evaluator, patch engine, helpers, API, agentic proxy) | 50 | ✅ All pass |
-| CLI | 29 | ✅ All pass |
+| CLI | 49 | ✅ All pass |
 | Lambda handlers (`infra/aws_lambda/tests/`) | 2 | ✅ All pass |
-| **Total** | **326** | **✅ 100%** |
+| **Total** | **346** | **✅ 100%** |
 
 `opa test policies/` passes with no failures.
 
@@ -294,4 +304,4 @@ backend extractor.
 ---
 
 *ACE+RHG v0.1 — Development Status*
-*326 tests passing; phases 1–15 landed. Only the React dashboard remains deferred.*
+*346 tests passing; phases 1–15 landed. Only the React dashboard remains deferred.*

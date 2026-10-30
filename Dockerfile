@@ -6,6 +6,7 @@ COPY services/ace/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt awslambdaric
 
 COPY services/ace/ ace/
+COPY services/common/ common/
 COPY policies/ policies/
 COPY services/ace/lambda_handler.py /var/task/lambda_handler.py
 

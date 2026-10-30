@@ -4,11 +4,13 @@ import os
 import time
 import uuid
 
+from common.storage import ActivityRecord, get_storage_backend
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ace.api.websocket import publish_event
 from ace.engine.opa_client import OPAClient
+from ace.metrics.factory import get_metrics_client
 from ace.metrics.prometheus import (
     ACTIVE_SCANS,
     COMPLIANCE_SCORE,
@@ -21,20 +23,25 @@ from ace.parsers.dockerfile import DockerfileParser
 from ace.parsers.github_actions import GitHubActionsParser
 from ace.parsers.helm import HelmParser
 from ace.parsers.kubernetes import KubernetesParser
+from ace.parsers.source_code_parser import SourceCodeParser
 from ace.parsers.terraform import TerraformParser
+from ace.scanners.api_regex_scanner import APIFindingsScanner
 from ace.scoring.risk_scorer import score_findings
 
 router = APIRouter(prefix="/ace", tags=["ACE"])
 opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
 notifier = MutationNotifier()
+_metrics = get_metrics_client()
+_storage = get_storage_backend()
 
 PARSERS = [
     GitHubActionsParser(),
     DockerComposeParser(),
+    HelmParser(),
     KubernetesParser(),
     TerraformParser(),
     DockerfileParser(),
-    HelmParser(),
+    SourceCodeParser(),
 ]
 POLICY_MAP = {
     "kubernetes": "ace/cis/kubernetes",
@@ -44,6 +51,7 @@ POLICY_MAP = {
     "docker_compose": "ace/cis/docker_compose",
     "github_actions": "ace/gha/security",
     "nist": "ace/nist",
+    "source_code": "ace/api/security",
 }
 
 
@@ -112,6 +120,7 @@ async def scan(request: ScanRequest):
     ACTIVE_SCANS.inc()
     try:
         all_findings = []
+        api_scanner = APIFindingsScanner()
         for artifact in request.artifacts:
             raw_content = base64.b64decode(artifact.content).decode()
             parser = next((p for p in PARSERS if p.supports(artifact.name)), None)
@@ -119,10 +128,18 @@ async def scan(request: ScanRequest):
                 continue
             normalized = parser.parse(raw_content, artifact.name)
             policy_path = POLICY_MAP.get(normalized.artifact_type, "ace/cis/kubernetes")
-            findings = await opa.evaluate_deny(policy_path, normalized.raw)
+            try:
+                findings = await opa.evaluate_deny(policy_path, normalized.raw)
+            except Exception:
+                findings = []
             for f in findings:
                 f["artifact"] = artifact.name
+                if "file" not in f:
+                    f["file"] = artifact.name
             all_findings.extend(findings)
+            if normalized.artifact_type == "source_code":
+                regex_findings = api_scanner.scan(raw_content, artifact.name, normalized.raw.get("language", "unknown"))
+                all_findings.extend(regex_findings)
 
         risk = score_findings(all_findings, request.environment)
         # ``risk.score`` is higher-is-worse; the dashboard's "Compliance score"
@@ -148,6 +165,33 @@ async def scan(request: ScanRequest):
         duration = time.time() - start
         outcome = "block" if risk.severity.value in ("CRITICAL", "HIGH") else "allow"
         track_scan(request.environment, outcome, duration, all_findings)
+        try:
+            _metrics.increment("scans_total", labels={"environment": request.environment, "outcome": outcome})
+            for f in all_findings:
+                _metrics.increment(
+                    "findings_total",
+                    labels={"severity": f.get("severity") or "UNKNOWN", "rule_id": f.get("rule_id") or "UNKNOWN"},
+                )
+        except Exception:
+            pass
+        try:
+            _storage.record_activity(
+                ActivityRecord(
+                    event_type="scan",
+                    scan_id="",
+                    repo=None,
+                    branch=None,
+                    environment=request.environment,
+                    overall_severity=risk.severity.value,
+                    findings_count=len(all_findings),
+                    mutations_applied=0,
+                    gate_decision=None,
+                    triggered_by="api",
+                    artifact_count=len(request.artifacts),
+                )
+            )
+        except Exception:
+            pass
         await publish_event("scan.completed", {
             "scan_id": "",
             "pipeline_id": request.pipeline_id,
@@ -216,7 +260,10 @@ async def scan_and_mutate(request: ScanRequest):
             continue
         normalized = parser.parse(raw_content, artifact.name)
         policy_path = POLICY_MAP.get(normalized.artifact_type, "ace/cis/kubernetes")
-        patches = await opa.evaluate_patch(policy_path, normalized.raw)
+        try:
+            patches = await opa.evaluate_patch(policy_path, normalized.raw)
+        except Exception:
+            patches = []
         for p in patches:
             p["artifact"] = artifact.name
         all_patches.extend(patches)

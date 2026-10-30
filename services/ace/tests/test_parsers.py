@@ -281,6 +281,58 @@ class TestTerraformParser:
         artifact = self.parser.parse(json.dumps(plan), "plan.tf.json")
         assert len(artifact.metadata["resources"]) == 0
 
+    def test_hcl_file_yields_resources(self):
+        hcl = """
+resource "aws_s3_bucket" "data" {
+  bucket = "my-unencrypted-bucket"
+  acl    = "public-read"
+}
+"""
+        artifact = self.parser.parse(hcl, "main.tf")
+        assert len(artifact.metadata["resources"]) == 1
+        res = artifact.metadata["resources"][0]
+        assert res["type"] == "aws_s3_bucket"
+        assert res["address"] == "aws_s3_bucket.data"
+        assert res["values"]["acl"] == "public-read"
+        assert res["_index"] == 0
+
+    def test_hcl_nested_blocks_and_lists(self):
+        hcl = """
+resource "aws_security_group" "web" {
+  name = "allow-https"
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+"""
+        artifact = self.parser.parse(hcl, "sg.tf")
+        values = artifact.metadata["resources"][0]["values"]
+        assert values["ingress"][0]["cidr_blocks"] == ["0.0.0.0/0"]
+        assert values["ingress"][0]["from_port"] == 443
+
+    def test_hcl_ignores_braces_in_strings_and_comments(self):
+        hcl = """
+# resource "aws_s3_bucket" "commented" {  <- commented out
+resource "aws_instance" "web" {
+  tags = {
+    Name = "has { braces } inside"
+  }
+}
+"""
+        artifact = self.parser.parse(hcl, "main.tf")
+        assert len(artifact.metadata["resources"]) == 1
+        assert artifact.metadata["resources"][0]["type"] == "aws_instance"
+
+    def test_raw_publishes_resources_for_opa(self):
+        # The CIS Terraform bundle reads input.metadata.resources; the scan route
+        # forwards normalized.raw to OPA, so resources must live under that key.
+        hcl = 'resource "aws_s3_bucket" "data" {\n  acl = "public-read"\n}\n'
+        artifact = self.parser.parse(hcl, "main.tf")
+        assert artifact.raw["metadata"]["resources"][0]["type"] == "aws_s3_bucket"
+
 
 class TestDockerfileParser:
     def setup_method(self):
@@ -364,6 +416,32 @@ metadata:
 """
         artifact = self.parser.parse(content, "templates/config.yaml")
         assert artifact.metadata["has_template_expressions"] is False
+
+    def test_normalizes_containers_for_opa(self):
+        # Helm templates route to the CIS Kubernetes bundle, so containers must
+        # be lifted out of spec.template.spec into spec.containers.
+        artifact = self.parser.parse(PRIVILEGED_DEPLOYMENT, "templates/deploy.yaml")
+        assert artifact.artifact_type == "helm"
+        assert artifact.raw["spec"]["containers"][0]["name"] == "app"
+
+    def test_handles_unquoted_template_expression(self):
+        content = """
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          securityContext:
+            privileged: true
+"""
+        artifact = self.parser.parse(content, "templates/deploy.yaml")
+        assert artifact.metadata["kind"] == "Deployment"
+        assert "image.repository" in artifact.metadata["template_variables"]
 
 
 VULN_DOCKER_COMPOSE = """
@@ -459,6 +537,8 @@ class TestDockerComposeParser:
         assert self.parser.supports("compose.yml") is True
         assert self.parser.supports("compose.yaml") is True
         assert self.parser.supports("docker-compose.dev.yml") is True
+        # Path-qualified names still resolve to the compose parser.
+        assert self.parser.supports("infra/docker-compose.yml") is True
 
     def test_does_not_support_plain_yaml(self):
         assert self.parser.supports("deployment.yaml") is False

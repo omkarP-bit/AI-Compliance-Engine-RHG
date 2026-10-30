@@ -18,6 +18,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # The scan handler talks to a shared/remote OPA via `OPA_URL`; no OPA binary is
 # bundled in the image.
 COPY services/ace/ ./ace/
+COPY services/rhg/ ./rhg/
+COPY services/common/ ./common/
 COPY policies/ ./ace/policies/
 COPY infra/aws_lambda/handlers/ ./handlers/
 
