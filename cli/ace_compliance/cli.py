@@ -87,14 +87,10 @@ def scan(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, backen
                 scan_paths.append(d)
         # Also include any yaml/yml in root for infra scanning
         if not scan_paths:
-            for f in Path('.').glob('*.yml'):
-                scan_paths.append(str(f))
-            for f in Path('.').glob('*.yaml'):
-                scan_paths.append(str(f))
-            for f in Path('.').glob('Dockerfile*'):
-                scan_paths.append(str(f))
-            for f in Path('.').glob('docker-compose*'):
-                scan_paths.append(str(f))
+            for pattern in ("*.yml", "*.yaml", "Dockerfile*", "docker-compose*"):
+                for f in sorted(Path('.'.glob(pattern))):
+                    if f.is_file() and str(f) not in scan_paths:
+                        scan_paths.append(str(f))
         if not scan_paths:
             click.echo("No common infra directories found (k8s, infra, manifests, terraform, helm, charts).", err=True)
             raise SystemExit(1)
