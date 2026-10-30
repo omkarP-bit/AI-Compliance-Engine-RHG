@@ -71,11 +71,11 @@ class APIFindingsScanner:
             (r"urllib\.request\.urlopen\s*\([^)]*(?:req\.|request\.)", "API-SEC-101", "SSRF risk with urlopen", "HIGH", "Validate URLs against allowlist."),
             # Insecure deserialization
             (r"pickle\.loads\s*\(", "API-SEC-110", "Insecure deserialization with pickle", "CRITICAL", "Avoid pickle with untrusted data. Use safe formats like JSON."),
-            (r"yaml\.load\s*\([^)]*(?!Loader)", "API-SEC-111", "Unsafe YAML deserialization", "HIGH", "Use yaml.safe_load() instead of yaml.load()."),
+            (r"yaml\.load\s*\((?![^)]*Loader)", "API-SEC-111", "Unsafe YAML deserialization", "HIGH", "Use yaml.safe_load() instead of yaml.load()."),
             (r"unserialize\s*\(", "API-SEC-112", "PHP unserialize() deserialization risk", "HIGH", "Avoid unserialize with untrusted data."),
             # Weak crypto ciphers
             (r"crypto\.createDecipher|createCipher", "API-SEC-120", "Weak/deprecated crypto API usage", "HIGH", "Use createCipheriv/createDecipheriv with secure modes (OWASP A02)."),
-            (r"DES(?:[-_]|$)|RC4|Blowfish|3DES", "API-SEC-121", "Weak/obsolete cryptographic algorithm", "HIGH", "Use AES-GCM or ChaCha20-Poly1305 (OWASP A02)."),
+            (r"\bDES(?:ede)?\b\bRC4\b|\bBlowfish\b|\b3DES\b", "API-SEC-121", "Weak/obsolete cryptographic algorithm", "HIGH", "Use AES-GCM or ChaCha20-Poly1305 (OWASP A02)."),
             (r"Math\.random\s*\(\)", "API-SEC-122", "Insecure random for security purposes", "MEDIUM", "Use crypto.randomBytes() for security-critical randomness."),
             # Mass assignment / excessive data exposure hints
             (r"Object\.assign\s*\([^,]+,\s*req\.body", "API-SEC-130", "Mass assignment risk with req.body", "MEDIUM", "Whitelist allowed fields explicitly (OWASP API3)."),
