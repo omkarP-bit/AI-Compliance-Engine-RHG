@@ -6,7 +6,8 @@ import base64
 from pathlib import Path
 
 SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
-SEVERITY_CHOICES = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+SEVERITY_CHOICES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
+SEVERITY_ORDER = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0}
 PROFILE_CHOICES = ["local", "cloud", "auto"]
 
 LANGUAGE_BY_SUFFIX = {
@@ -61,10 +62,13 @@ def iter_artifacts(base: Path):
         if "dockerfile" in name:
             seen.add(f.resolve())
             continue
-        if base_path.name in {"api", "apis", "routes", "controllers", "services", "src", "app", "backend", "server", "handlers"} or any(p in f.parts for p in {"api", "apis", "routes", "controllers", "services", "src", "app", "backend", "server", "handlers"}):
+        if base_path.name in {"api", "apis", "routes", "controllers", "services", "src", "app", "backend", "server", "handlers", "scripts"} or any(p in f.parts for p in {"api", "apis", "routes", "controllers", "services", "src", "app", "backend", "server", "handlers", "scripts"}):
             if f.suffix in LANGUAGE_BY_SUFFIX:
                 seen.add(f.resolve())
                 continue
+        if f.suffix in LANGUAGE_BY_SUFFIX and (f.parent.name in {"src", "api", "app", "routes", "services"} or any(p in f.parts for p in {"src", "api", "routes", "services", "controllers"})):
+            seen.add(f.resolve())
+            continue
     return sorted(seen)
 
 

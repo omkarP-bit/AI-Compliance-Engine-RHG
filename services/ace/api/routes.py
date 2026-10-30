@@ -3,6 +3,7 @@ import copy
 import os
 import time
 import uuid
+from typing import Optional
 
 from common.storage import ActivityRecord, get_storage_backend
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,7 @@ from ace.metrics.prometheus import (
     ACTIVE_SCANS,
     COMPLIANCE_SCORE,
     OPA_HEALTH,
+    track_mutation,
     track_scan,
 )
 from ace.notifier.mutation_notifier import MutationEvent, MutationNotifier
@@ -73,6 +75,7 @@ class ScanRequest(BaseModel):
     artifacts: list[ArtifactInput]
     policy_bundles: list[str] = ["cis-kubernetes@v1.8"]
     backend_source: list[BackendFile] = []
+    api_min_severity: Optional[str] = None
 
 
 class ScanResponse(BaseModel):
@@ -120,7 +123,7 @@ async def scan(request: ScanRequest):
     ACTIVE_SCANS.inc()
     try:
         all_findings = []
-        api_scanner = APIFindingsScanner()
+        api_scanner = APIFindingsScanner(min_severity=request.api_min_severity or os.getenv("API_MIN_SEVERITY", "INFO"))
         for artifact in request.artifacts:
             raw_content = base64.b64decode(artifact.content).decode()
             parser = next((p for p in PARSERS if p.supports(artifact.name)), None)
@@ -275,6 +278,13 @@ async def scan_and_mutate(request: ScanRequest):
 
     duration = time.time() - start
     track_scan(request.environment, "patched", duration, scan_result.findings)
+    try:
+        if all_patches:
+            track_mutation("applied")
+        else:
+            track_mutation("skipped")
+    except Exception:
+        pass
     await publish_event("scan.completed", {
         "scan_id": scan_result.scan_id,
         "pipeline_id": scan_result.pipeline_id,
