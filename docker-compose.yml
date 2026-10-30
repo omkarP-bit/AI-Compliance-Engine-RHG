@@ -67,7 +67,8 @@ services:
       - "8001:8001"
     environment:
       ACE_URL: http://ace:8000
-      BLOCK_ON_SEVERITY: HIGH
+      BLOCK_ON_SEVERITY: ${BLOCK_ON_SEVERITY:-HIGH}
+      API_MIN_SEVERITY: ${API_MIN_SEVERITY:-INFO}
       MAX_MUTATION_RETRIES: "3"
       REDIS_URL: redis://redis:6379
       RHG_METRICS_PORT: "9091"
