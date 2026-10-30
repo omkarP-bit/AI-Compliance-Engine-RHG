@@ -259,16 +259,23 @@ def mutate(ctx, path, artifact_type, finding_ids, profile, ace_url, timeout, out
 @click.option("--output", type=click.Choice(["text", "json"]), default=None,
               help="Output format (overrides the group default)")
 @click.option("--fail-on", type=click.Choice(SEVERITY_CHOICES), default="HIGH")
+@click.option("--api-fail-on", type=click.Choice(SEVERITY_CHOICES), default=None)
+@click.option("--api-min-severity", type=click.Choice(SEVERITY_CHOICES), default=None)
 @click.option("--profile", type=click.Choice(PROFILE_CHOICES), default=None,
               envvar="ACE_PROFILE", help="Deployment profile (overrides the group default)")
 @click.option("--ace-url", default=None, help="ACE service URL (overrides the profile)")
 @click.option("--timeout", type=float, default=None, help="Request timeout in seconds")
 @click.pass_context
-def scan_and_mutate(ctx, paths, env, output, fail_on, profile, ace_url, timeout):
+def scan_and_mutate(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, profile, ace_url, timeout):
     """Scan artifacts and generate patches without applying them."""
     output = _output(ctx, output)
     timeout = _timeout(ctx, timeout)
     ace_url = _resolve_ace(ctx, profile, ace_url)
+    g = ctx.obj or {}
+    profile = profile or getattr(g, "profile", None)
+    timeout = timeout or getattr(g, "timeout", None)
+    fail_on = fail_on or getattr(g, "fail_on", "HIGH")
+    api_fail_on = api_fail_on or api_min_severity
     if not paths:
         paths = (".",)
 
@@ -281,6 +288,7 @@ def scan_and_mutate(ctx, paths, env, output, fail_on, profile, ace_url, timeout)
         "pipeline_id": "cli-scan-and-mutate",
         "environment": env,
         "artifacts": artifacts,
+        **({"api_min_severity": api_fail_on} if api_fail_on else {}),
     }
     result = asyncio.run(
         _post_json(ace_url, "/ace/scan-and-mutate", payload, timeout, ctx.obj.verbose)
@@ -319,6 +327,8 @@ def scan_and_mutate(ctx, paths, env, output, fail_on, profile, ace_url, timeout)
               help="Output format (overrides the group default)")
 @click.option("--fail-on", type=click.Choice(SEVERITY_CHOICES), default="HIGH",
               help="Exit non-zero when blocking severity is at least this level")
+@click.option("--api-fail-on", type=click.Choice(SEVERITY_CHOICES), default=None)
+@click.option("--api-min-severity", type=click.Choice(SEVERITY_CHOICES), default=None)
 @click.option("--repo", default="unknown/repo", show_default=True, help="Repository slug")
 @click.option("--branch", default="main", show_default=True, help="Branch name")
 @click.option("--backend-path", multiple=True, type=click.Path(exists=True),
@@ -333,7 +343,7 @@ def scan_and_mutate(ctx, paths, env, output, fail_on, profile, ace_url, timeout)
 @click.option("--rhg-url", default=None, help="RHG service URL (overrides the profile)")
 @click.option("--timeout", type=float, default=None, help="Request timeout in seconds (default 60)")
 @click.pass_context
-def submit(ctx, paths, env, output, fail_on, repo, branch, backend_path, scan_all, infra, scan_backend, write_dir,
+def submit(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, repo, branch, backend_path, scan_all, infra, scan_backend, write_dir,
            profile, rhg_url, timeout):
     """Submit artifacts to the RHG gate for a deploy/no-deploy decision."""
     output = _output(ctx, output)
@@ -349,6 +359,14 @@ def submit(ctx, paths, env, output, fail_on, repo, branch, backend_path, scan_al
         for d in ["k8s", "infra", "manifests", "terraform", "helm", "charts"]:
             if Path(d).exists():
                 scan_paths.append(d)
+        if not scan_paths:
+            for pattern in ("*.yml", "*.yaml", "Dockerfile*", "docker-compose*"):
+                for p in sorted(Path('.'.glob(pattern))):
+                    if p.is_file() and str(p) not in scan_paths:
+                        scan_paths.append(str(p))
+        if not scan_paths:
+            click.echo("No common infra directories found (k8s, infra, manifests, terraform, helm, charts).", err=True)
+            raise SystemExit(1)
         if not scan_paths:
             scan_paths = ["."]
     if scan_backend:
@@ -376,7 +394,11 @@ def submit(ctx, paths, env, output, fail_on, repo, branch, backend_path, scan_al
         "artifacts": artifacts,
         "backend_source": collect_backend(backend_paths),
     }
-    result = asyncio.run(_post_json(rhg_url, "/rhg/submit", payload, timeout, ctx.obj.verbose))
+    if hasattr(ctx.obj, 'verbose'):
+        verbose = ctx.obj.verbose
+    else:
+        verbose = False
+    result = asyncio.run(_post_json(rhg_url, "/rhg/submit", payload, timeout, verbose))
     decision = result.get("decision", "?")
 
     if output == "json":
@@ -403,7 +425,18 @@ def submit(ctx, paths, env, output, fail_on, repo, branch, backend_path, scan_al
         if blocking:
             click.echo("  Blocking findings:")
             for f in blocking:
-                click.echo(f"    [{f.get('severity', '?')}] {f.get('rule_id', '?')}  {f.get('message', '')}")
+                sev = f.get("severity", "?")
+                rule_id = f.get("rule_id", "?")
+                msg = f.get("message") or f.get("title") or f.get("description") or ""
+                artifact = f.get("artifact") or f.get("file") or ""
+                line = f.get("line_number") or f.get("line")
+                snippet = f.get("snippet") or f.get("code_snippet")
+                color = {"CRITICAL": "red", "HIGH": "yellow", "MEDIUM": "blue", "LOW": "white"}.get(sev, "white")
+                click.echo(f"    [{click.style(sev, fg=color)}] {rule_id}  {artifact}{':' + str(line) if line else ''}")
+                if msg:
+                    click.echo(f"         {msg}")
+                if snippet:
+                    click.echo(f"         {snippet}")
         click.echo("")
 
     patched = result.get("patched_artifacts") or []
