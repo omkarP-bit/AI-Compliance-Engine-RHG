@@ -53,6 +53,8 @@ def cli(ctx, profile, ace_url, rhg_url, timeout, output, quiet, verbose):
 @click.option("--output", type=click.Choice(["text", "json"]), default=None,
               help="Output format (overrides the group default)")
 @click.option("--fail-on", type=click.Choice(SEVERITY_CHOICES), default="HIGH")
+@click.option("--api-fail-on", type=click.Choice(SEVERITY_CHOICES), default=None)
+@click.option("--api-min-severity", type=click.Choice(SEVERITY_CHOICES), default=None)
 @click.option("--backend-path", multiple=True, type=click.Path(exists=True),
               help="Backend source file or directory to analyze (repeatable)")
 @click.option("--all", "scan_all", is_flag=True, help="Scan all supported artifacts in current directory")
@@ -63,7 +65,7 @@ def cli(ctx, profile, ace_url, rhg_url, timeout, output, quiet, verbose):
 @click.option("--ace-url", default=None, help="ACE service URL (overrides the profile)")
 @click.option("--timeout", type=float, default=None, help="Request timeout in seconds")
 @click.pass_context
-def scan(ctx, paths, env, output, fail_on, backend_path, scan_all, infra, scan_backend, profile, ace_url, timeout):
+def scan(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, backend_path, scan_all, infra, scan_backend, profile, ace_url, timeout):
     """Scan one or more artifact files for compliance violations."""
     g = ctx.obj
     output = pick(output, g.output, default="text")
@@ -83,8 +85,19 @@ def scan(ctx, paths, env, output, fail_on, backend_path, scan_all, infra, scan_b
         for d in ["k8s", "infra", "manifests", "terraform", "helm", "charts"]:
             if Path(d).exists():
                 scan_paths.append(d)
+        # Also include any yaml/yml in root for infra scanning
         if not scan_paths:
-            scan_paths = ["."]
+            for f in Path('.').glob('*.yml'):
+                scan_paths.append(str(f))
+            for f in Path('.').glob('*.yaml'):
+                scan_paths.append(str(f))
+            for f in Path('.').glob('Dockerfile*'):
+                scan_paths.append(str(f))
+            for f in Path('.').glob('docker-compose*'):
+                scan_paths.append(str(f))
+        if not scan_paths:
+            click.echo("No common infra directories found (k8s, infra, manifests, terraform, helm, charts).", err=True)
+            raise SystemExit(1)
     if scan_backend:
         for d in ["services", "src", "app", "backend", "api", "server"]:
             if Path(d).exists() and d not in backend_paths:
@@ -97,10 +110,13 @@ def scan(ctx, paths, env, output, fail_on, backend_path, scan_all, infra, scan_b
     
     if not scan_paths:
         scan_paths = (".",)
-    asyncio.run(_scan(scan_paths, env, output, fail_on, ace_url, timeout, g.verbose, g.quiet, backend_paths))
+    if api_fail_on:
+        import os
+        os.environ["API_MIN_SEVERITY"] = api_fail_on
+    asyncio.run(_scan(scan_paths, env, output, fail_on, ace_url, timeout, g.verbose, g.quiet, backend_paths, api_fail_on))
 
 
-async def _scan(paths, env, output, fail_on, ace_url, timeout, verbose, quiet, backend_paths=None):
+async def _scan(paths, env, output, fail_on, ace_url, timeout, verbose, quiet, backend_paths=None, api_fail_on=None):
     artifacts = collect_artifacts(paths)
     if not artifacts and not (backend_paths):
         click.echo("No supported artifacts found.", err=True)
@@ -117,6 +133,7 @@ async def _scan(paths, env, output, fail_on, ace_url, timeout, verbose, quiet, b
                     "environment": env,
                     "artifacts": artifacts,
                     "backend_source": collect_backend(backend_paths or []),
+                    **({"api_min_severity": api_fail_on} if api_fail_on else {}),
                 },
                 timeout=timeout,
             )
@@ -158,11 +175,16 @@ def _print_text_report(result: dict, quiet: bool = False):
     for f in findings:
         sev = f.get("severity", "?")
         rule_id = f.get("rule_id", "?")
-        msg = f.get("message", "")
-        artifact = f.get("artifact", "")
+        msg = f.get("message") or f.get("title") or f.get("description") or ""
+        artifact = f.get("artifact") or f.get("file") or ""
+        line = f.get("line_number") or f.get("line")
+        snippet = f.get("snippet") or f.get("code_snippet")
         color = {"CRITICAL": "red", "HIGH": "yellow", "MEDIUM": "blue", "LOW": "white"}.get(sev, "white")
-        click.echo(f"  [{click.style(sev, fg=color)}] {rule_id}  {artifact}")
-        click.echo(f"       {msg}")
+        click.echo(f"  [{click.style(sev, fg=color)}] {rule_id}  {artifact}{':' + str(line) if line else ''}")
+        if msg:
+            click.echo(f"       {msg}")
+        if snippet:
+            click.echo(f"       {snippet}")
     click.echo("")
 
 
