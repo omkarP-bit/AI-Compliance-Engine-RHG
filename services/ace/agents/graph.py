@@ -56,7 +56,7 @@ from ace.engine.artifact_codec import (
     policy_path_for,
 )
 from ace.engine.opa_client import OPAClient
-from ace.metrics.prometheus import AGENT_DURATION
+from ace.metrics.prometheus import AGENT_DURATION, track_mutation
 from ace.mutator.patch_engine import PatchEngine
 
 AGENT_EVENT_CHANNEL = "agentic"
@@ -359,6 +359,10 @@ async def _mutating(state: AgentState, patcher) -> dict:
         # ``/spec/containers/0/env/DATABASE_URL`` (a name, against a list) raises
         # ValueError straight through. That must fail the release, not the
         # process.
+        try:
+            track_mutation("failed")
+        except Exception:
+            pass
         return _escalate(
             state,
             finding,
@@ -373,6 +377,13 @@ async def _mutating(state: AgentState, patcher) -> dict:
         "content": encode_content(patched, artifact_type),
     }
 
+    try:
+        if applied_ops:
+            track_mutation("applied")
+        else:
+            track_mutation("skipped")
+    except Exception:
+        pass
     await _emit(
         "remediation.applied",
         state,
