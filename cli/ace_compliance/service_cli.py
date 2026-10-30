@@ -272,9 +272,6 @@ def scan_and_mutate(ctx, paths, env, output, fail_on, api_fail_on, api_min_sever
     timeout = _timeout(ctx, timeout)
     ace_url = _resolve_ace(ctx, profile, ace_url)
     g = ctx.obj or {}
-    profile = profile or getattr(g, "profile", None)
-    timeout = timeout or getattr(g, "timeout", None)
-    fail_on = fail_on or getattr(g, "fail_on", "HIGH")
     api_fail_on = api_fail_on or api_min_severity
     if not paths:
         paths = (".",)
