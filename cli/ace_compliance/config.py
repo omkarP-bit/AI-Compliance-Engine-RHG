@@ -6,7 +6,7 @@ Which one it uses is an explicit choice, not an accident of a globally exported
 silently shadows local runs):
 
 * ``ACE_PROFILE=local``  always localhost, ignoring a stray ``ACE_URL``
-* ``ACE_PROFILE=cloud``  use ``ACE_URL`` / ``RHG_URL`` (required)
+* ``ACE_PROFILE=cloud``  use ``ACE_URL`` (required); ``RHG_URL`` falls back to it
 * ``ACE_PROFILE=auto``   use ``ACE_URL`` / ``RHG_URL`` when set, else local
 
 An explicit ``--ace-url`` / ``--rhg-url`` always wins over the profile.
@@ -56,8 +56,8 @@ def resolve_rhg_url(profile: str | None = None, override: str | None = None) -> 
     if chosen == "local":
         return RHG_LOCAL_URL
     if chosen == "cloud":
-        url = os.environ.get("RHG_URL")
+        url = os.environ.get("RHG_URL") or os.environ.get("ACE_URL")
         if not url:
-            raise EndpointError("ACE_PROFILE=cloud requires RHG_URL to be set")
+            raise EndpointError("ACE_PROFILE=cloud requires ACE_URL or RHG_URL to be set")
         return url
-    return os.environ.get("RHG_URL") or RHG_LOCAL_URL
+    return os.environ.get("RHG_URL") or os.environ.get("ACE_URL") or RHG_LOCAL_URL

@@ -69,8 +69,19 @@ class TestResolveRhgUrl:
 
     def test_cloud_requires_env(self, monkeypatch):
         monkeypatch.delenv("RHG_URL", raising=False)
+        monkeypatch.delenv("ACE_URL", raising=False)
         with pytest.raises(EndpointError):
             resolve_rhg_url("cloud")
+
+    def test_cloud_falls_back_to_ace_url(self, monkeypatch):
+        monkeypatch.delenv("RHG_URL", raising=False)
+        monkeypatch.setenv("ACE_URL", "https://cloud.example.com")
+        assert resolve_rhg_url("cloud") == "https://cloud.example.com"
+
+    def test_cloud_prefers_rhg_url(self, monkeypatch):
+        monkeypatch.setenv("ACE_URL", "https://cloud.example.com")
+        monkeypatch.setenv("RHG_URL", "https://rhg.example.com")
+        assert resolve_rhg_url("cloud") == "https://rhg.example.com"
 
     def test_explicit_override_wins(self):
         assert resolve_rhg_url("cloud", "https://rhg.example.com") == "https://rhg.example.com"

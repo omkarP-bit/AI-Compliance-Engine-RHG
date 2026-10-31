@@ -2,7 +2,6 @@ import asyncio
 import json
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
-from pathlib import Path
 
 import click
 import httpx
@@ -15,7 +14,10 @@ from ace_compliance.helpers import (
     GlobalOptions,
     collect_artifacts,
     collect_backend,
+    collect_source_artifacts,
+    discover_infra_paths,
     pick,
+    resolve_backend_roots,
 )
 
 
@@ -78,43 +80,53 @@ def scan(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, backen
     
     backend_paths = list(backend_path)
     scan_paths = list(paths)
-    
+
     if scan_all and not scan_paths:
         scan_paths = ["."]
     if infra and not scan_paths:
-        for d in ["k8s", "infra", "manifests", "terraform", "helm", "charts"]:
-            if Path(d).exists():
-                scan_paths.append(d)
-        # Also include any yaml/yml in root for infra scanning
+        scan_paths = discover_infra_paths()
         if not scan_paths:
-            for pattern in ("*.yml", "*.yaml", "Dockerfile*", "docker-compose*"):
-                for f in sorted(Path('.'.glob(pattern))):
-                    if f.is_file() and str(f) not in scan_paths:
-                        scan_paths.append(str(f))
-        if not scan_paths:
-            click.echo("No common infra directories found (k8s, infra, manifests, terraform, helm, charts).", err=True)
+            click.echo(
+                "No infra artifacts found (k8s, infra, manifests, terraform, helm, "
+                "charts, or root Dockerfile/compose/YAML files).",
+                err=True,
+            )
             raise SystemExit(1)
+
+    backend_only = scan_backend and not infra and not scan_all
     if scan_backend:
-        for d in ["services", "src", "app", "backend", "api", "server"]:
-            if Path(d).exists() and d not in backend_paths:
-                backend_paths.append(d)
-        # Also add backend dirs to scan if no explicit paths
-        if not scan_paths or scan_paths == (".",):
-            for d in ["services", "src", "app", "backend", "api", "server"]:
-                if Path(d).exists() and d not in scan_paths:
-                    scan_paths.append(d)
-    
+        for p in resolve_backend_roots(list(backend_path), list(paths)):
+            if p not in backend_paths:
+                backend_paths.append(p)
+        if backend_only:
+            scan_paths = []
+
     if not scan_paths:
-        scan_paths = (".",)
-    if api_fail_on:
-        import os
-        os.environ["API_MIN_SEVERITY"] = api_fail_on
-    asyncio.run(_scan(scan_paths, env, output, fail_on, ace_url, timeout, g.verbose, g.quiet, backend_paths, api_fail_on))
+        scan_paths = [] if backend_only else (".",)
+
+    if api_min_severity:
+        api_fail_on = api_min_severity
+    asyncio.run(
+        _scan(
+            scan_paths,
+            env,
+            output,
+            fail_on,
+            ace_url,
+            timeout,
+            g.verbose,
+            g.quiet,
+            backend_paths,
+            api_fail_on,
+        )
+    )
 
 
 async def _scan(paths, env, output, fail_on, ace_url, timeout, verbose, quiet, backend_paths=None, api_fail_on=None):
     artifacts = collect_artifacts(paths)
-    if not artifacts and not (backend_paths):
+    if backend_paths:
+        artifacts.extend(collect_source_artifacts(backend_paths))
+    if not artifacts:
         click.echo("No supported artifacts found.", err=True)
         raise SystemExit(1)
 

@@ -327,7 +327,6 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
 
     findings = scan_data.get("findings", [])
     patchable_findings = [f for f in findings if f.get("patchable", False)]
-    non_patchable = [f for f in findings if not f.get("patchable", False)]
 
     total_mutations = 0
     patched_artifacts_output: list[PatchedArtifact] = []
@@ -349,7 +348,9 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
         ops_notified = result["ops_notified"]
         escalated_findings = result["escalated_findings"]
 
-    all_findings_post = list(findings) + non_patchable + escalated_findings
+    # ``scan_data`` already contains every finding from the (post-mutation) scan,
+    # including the non-patchable ones. Only escalations are additional.
+    all_findings_post = list(findings) + escalated_findings
     risk_score = scan_data.get("risk_score", 0.0)
     overall_severity = scan_data.get("overall_severity", "INFO")
 

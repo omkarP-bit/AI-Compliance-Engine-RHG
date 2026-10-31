@@ -24,8 +24,11 @@ from ace_compliance.helpers import (
     SEVERITY_ORDER,
     collect_artifacts,
     collect_backend,
+    collect_source_artifacts,
+    discover_infra_paths,
     infer_type,
     pick,
+    resolve_backend_roots,
 )
 
 ARTIFACT_TYPES = ["kubernetes", "terraform", "dockerfile", "helm", "docker_compose", "github_actions"]
@@ -348,36 +351,33 @@ def submit(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, repo
     
     backend_paths = list(backend_path)
     scan_paths = list(paths)
-    
+
     if scan_all and not scan_paths:
         scan_paths = ["."]
     if infra and not scan_paths:
-        for d in ["k8s", "infra", "manifests", "terraform", "helm", "charts"]:
-            if Path(d).exists():
-                scan_paths.append(d)
+        scan_paths = discover_infra_paths()
         if not scan_paths:
-            for pattern in ("*.yml", "*.yaml", "Dockerfile*", "docker-compose*"):
-                for p in sorted(Path('.'.glob(pattern))):
-                    if p.is_file() and str(p) not in scan_paths:
-                        scan_paths.append(str(p))
-        if not scan_paths:
-            click.echo("No common infra directories found (k8s, infra, manifests, terraform, helm, charts).", err=True)
+            click.echo(
+                "No infra artifacts found (k8s, infra, manifests, terraform, helm, "
+                "charts, or root Dockerfile/compose/YAML files).",
+                err=True,
+            )
             raise SystemExit(1)
-        if not scan_paths:
-            scan_paths = ["."]
+
+    backend_only = scan_backend and not infra and not scan_all
     if scan_backend:
-        for d in ["services", "src", "app", "backend", "api", "server"]:
-            if Path(d).exists() and d not in backend_paths:
-                backend_paths.append(d)
-        if not scan_paths or scan_paths == (".",):
-            for d in ["services", "src", "app", "backend", "api", "server"]:
-                if Path(d).exists() and d not in scan_paths:
-                    scan_paths.append(d)
-    
+        for p in resolve_backend_roots(list(backend_path), list(paths)):
+            if p not in backend_paths:
+                backend_paths.append(p)
+        if backend_only:
+            scan_paths = []
+
     if not scan_paths:
-        scan_paths = (".",)
+        scan_paths = [] if backend_only else (".",)
 
     artifacts = collect_artifacts(scan_paths)
+    if backend_paths:
+        artifacts.extend(collect_source_artifacts(backend_paths))
     if not artifacts:
         click.echo("No supported artifacts found.", err=True)
         raise SystemExit(1)
@@ -390,6 +390,11 @@ def submit(ctx, paths, env, output, fail_on, api_fail_on, api_min_severity, repo
         "artifacts": artifacts,
         "backend_source": collect_backend(backend_paths),
     }
+    if api_min_severity:
+        payload["api_min_severity"] = api_min_severity
+    elif api_fail_on:
+        payload["api_min_severity"] = api_fail_on
+
     if hasattr(ctx.obj, 'verbose'):
         verbose = ctx.obj.verbose
     else:

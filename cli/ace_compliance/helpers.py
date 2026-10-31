@@ -24,6 +24,61 @@ LANGUAGE_BY_SUFFIX = {
 }
 _IGNORE_DIRS = {".git", "node_modules", "__pycache__", "dist", "build", ".venv", "venv", ".next", "target", "coverage"}
 
+INFRA_DIRS = ["k8s", "infra", "manifests", "terraform", "helm", "charts"]
+BACKEND_DIRS = [
+    "services",
+    "src",
+    "app",
+    "backend",
+    "api",
+    "server",
+    "symbolic_reasoning",
+    "feature_extraction",
+    "ml",
+    "risk_scoring",
+    "monitoring",
+    "explainability",
+    "database",
+]
+
+
+def discover_infra_paths() -> list[str]:
+    """Infra/config paths in the current directory, or ``[]`` when there are none.
+
+    Only infra-shaped files count here: YAML, Terraform, compose files and
+    Dockerfiles. Application source is deliberately excluded so ``--infra``
+    never reports source-code findings.
+    """
+    found = [d for d in INFRA_DIRS if Path(d).exists()]
+    if found:
+        return found
+    cwd = Path(".")
+    for pattern in ("*.yml", "*.yaml", "*.tf", "Dockerfile*", "docker-compose*", "compose*"):
+        for f in sorted(cwd.glob(pattern)):
+            if f.is_file() and str(f) not in found:
+                found.append(str(f))
+    return found
+
+
+def resolve_backend_roots(explicit: list[str], positional: list[str]) -> list[str]:
+    """Source roots to scan for ``--backend``.
+
+    Explicit ``--backend-path`` values win, then positional paths (treated as
+    source roots, not artifacts), then discovered ``BACKEND_DIRS``, and finally
+    the current directory when it directly contains source files.
+    """
+    if explicit:
+        return list(explicit)
+    if positional:
+        return list(positional)
+    roots = [d for d in BACKEND_DIRS if Path(d).exists()]
+    if roots:
+        return roots
+    cwd = Path(".")
+    if any(f.is_file() and f.suffix in LANGUAGE_BY_SUFFIX for f in cwd.iterdir()):
+        return ["."]
+    return []
+
 
 class GlobalOptions:
     """Group-level defaults that individual commands may override."""
@@ -49,7 +104,6 @@ def pick(*values, default=None):
 
 def iter_artifacts(base: Path):
     seen: set[Path] = set()
-    base_path = base.resolve()
     for f in base.rglob("*"):
         if not f.is_file():
             continue
@@ -60,13 +114,6 @@ def iter_artifacts(base: Path):
             seen.add(f.resolve())
             continue
         if "dockerfile" in name:
-            seen.add(f.resolve())
-            continue
-        if base_path.name in {"api", "apis", "routes", "controllers", "services", "src", "app", "backend", "server", "handlers", "scripts"} or any(p in f.parts for p in {"api", "apis", "routes", "controllers", "services", "src", "app", "backend", "server", "handlers", "scripts"}):
-            if f.suffix in LANGUAGE_BY_SUFFIX:
-                seen.add(f.resolve())
-                continue
-        if f.suffix in LANGUAGE_BY_SUFFIX and (f.parent.name in {"src", "api", "app", "routes", "services"} or any(p in f.parts for p in {"src", "api", "routes", "services", "controllers"})):
             seen.add(f.resolve())
             continue
     return sorted(seen)
@@ -146,6 +193,38 @@ def collect_artifacts(paths) -> list[dict]:
             artifacts.extend(make_artifact(f, _display_name(f, p)) for f in iter_artifacts(p))
         else:
             artifacts.append(make_artifact(p, _display_name(p, None, path_str)))
+    return artifacts
+
+
+def collect_source_artifacts(paths) -> list[dict]:
+    """Collect source files as ``source_code`` artifacts for API scanning.
+
+    These go through the server's SourceCodeParser + APIFindingsScanner path,
+    so findings carry file names, line numbers and snippets.
+    """
+    artifacts: list[dict] = []
+    for path_str in paths:
+        p = Path(path_str)
+        if p.is_dir():
+            files = [
+                f
+                for f in p.rglob("*")
+                if f.is_file()
+                and f.suffix in LANGUAGE_BY_SUFFIX
+                and not any(part in _IGNORE_DIRS for part in f.parts)
+            ]
+        elif p.is_file() and p.suffix in LANGUAGE_BY_SUFFIX:
+            files = [p]
+        else:
+            files = []
+        for f in sorted(set(files)):
+            artifacts.append(
+                {
+                    "type": "source_code",
+                    "name": str(f),
+                    "content": base64.b64encode(f.read_bytes()).decode(),
+                }
+            )
     return artifacts
 
 

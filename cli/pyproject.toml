@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ace-compliance"
-version = "0.1.3"
+version = "0.1.5"
 description = "ACE+RHG CLI — scan infrastructure artifacts for compliance violations before they ship"
 license = "MIT"
 requires-python = ">=3.12"
