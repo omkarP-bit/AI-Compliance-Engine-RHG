@@ -76,6 +76,13 @@ jobs:
       - name: Install CLI
         run: pip install -e cli/
 
+      - name: Install dev/test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Set up PYTHONPATH
+        run: |
+          echo "PYTHONPATH=$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/services:$GITHUB_WORKSPACE/cli" >> $GITHUB_ENV
+
       - name: Run ACE tests with coverage
         id: ace_tests
         continue-on-error: true
@@ -96,7 +103,7 @@ jobs:
         id: cli_tests
         continue-on-error: true
         run: |
-          python -m pytest cli/tests/ -v \
+          PYTHONPATH=${PYTHONPATH:-$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/services:$GITHUB_WORKSPACE/cli} python -m pytest cli/tests/ -v \
              --junitxml=junit-cli.xml
 
       - name: Upload test results
