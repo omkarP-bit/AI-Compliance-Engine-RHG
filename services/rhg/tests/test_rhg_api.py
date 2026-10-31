@@ -113,6 +113,38 @@ class TestRHGSubmitAPI:
 
         app.dependency_overrides.clear()
 
+    async def test_non_patchable_findings_are_not_double_counted(self):
+        response = {
+            **MOCK_SCAN_RESPONSE,
+            "findings": [
+                {"rule_id": "CIS-K8S-5.2.1", "severity": "HIGH",
+                 "message": "Privileged container", "artifact": "deploy.yaml",
+                 "patchable": False},
+                {"rule_id": "CIS-K8S-5.2.2", "severity": "HIGH",
+                 "message": "Runs as root", "artifact": "deploy.yaml",
+                 "patchable": False},
+            ],
+        }
+        mock_client = create_mock_ace_client(response)
+        app.dependency_overrides[get_ace_client] = lambda: mock_client
+
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post("/rhg/submit", json={
+                "pipeline_id": "pipe-dup",
+                "repo": "org/repo",
+                "environment": "production",
+                "artifacts": [{"type": "kubernetes", "name": "deploy.yaml", "content": VULN_YAML}],
+            })
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["decision"] == "BLOCK"
+            assert [f["rule_id"] for f in data["blocking_findings"]] == [
+                "CIS-K8S-5.2.1",
+                "CIS-K8S-5.2.2",
+            ]
+
+        app.dependency_overrides.clear()
+
     async def test_health_endpoint(self):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.get("/rhg/health")

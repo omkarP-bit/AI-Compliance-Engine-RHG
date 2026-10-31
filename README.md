@@ -355,6 +355,17 @@ Never commit API keys or other secrets to the repository.
 | `ace agent <paths...>` | Run the agentic remediation workflow |
 | `ace history` | View merged Git and ACE activity |
 
+#### Infra vs backend scans
+
+`--infra` and `--backend` are separate modes, so results never mix:
+
+* `ace scan --infra` scans only infrastructure/config artifacts (Kubernetes,
+  Helm, Terraform YAML, compose files and Dockerfiles).
+* `ace scan --backend` scans only application source code and reports API
+  findings with `file:line` and code snippets. Positional paths given with
+  `--backend` are treated as source roots.
+* Without either flag, `ace scan` scans config artifacts in the given paths.
+
 ### Utilities
 
 | Command | Description |
