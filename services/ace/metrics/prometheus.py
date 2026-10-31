@@ -1,6 +1,7 @@
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from .base import MetricsClient
+from .factory import get_metrics_client
 
 SCANS_TOTAL = Counter(
     "ace_scans_total", "Total scans performed", ["environment", "outcome"]
@@ -79,21 +80,55 @@ class PrometheusMetrics(MetricsClient):
 
 
 def track_scan(environment: str, outcome: str, duration: float, findings: list[dict]):
-    SCANS_TOTAL.labels(environment=environment, outcome=outcome).inc()
-    SCAN_DURATION.observe(duration)
+    """Record a completed scan against the active metrics backend.
+
+    Going through ``get_metrics_client`` means the same call updates the
+    Prometheus registry locally and emits CloudWatch EMF in Lambda.
+    """
+    client = get_metrics_client()
+    client.increment("scans_total", labels={"environment": environment, "outcome": outcome})
+    client.observe("scan_duration_seconds", duration)
     for f in findings:
-        FINDINGS_TOTAL.labels(
-            severity=f.get("severity") or "UNKNOWN",
-            rule_id=f.get("rule_id") or "UNKNOWN",
-        ).inc()
+        client.increment(
+            "findings_total",
+            labels={
+                "severity": f.get("severity") or "UNKNOWN",
+                "rule_id": f.get("rule_id") or "UNKNOWN",
+            },
+        )
 
 
 def track_gate_decision(decision: str, environment: str):
-    GATE_DECISIONS.labels(decision=decision, environment=environment).inc()
+    get_metrics_client().increment(
+        "gate_decisions_total",
+        labels={"decision": decision, "environment": environment},
+    )
 
 
 def track_mutation(outcome: str):
-    MUTATIONS_TOTAL.labels(outcome=outcome).inc()
+    get_metrics_client().increment("mutations_total", labels={"outcome": outcome})
+
+
+def track_agent_duration(agent_name: str, seconds: float):
+    get_metrics_client().observe(
+        "agent_duration_seconds", seconds, labels={"agent_name": agent_name}
+    )
+
+
+def track_opa_health(up: bool):
+    get_metrics_client().gauge("opa_health", 1 if up else 0)
+
+
+def track_compliance_score(environment: str, score: float):
+    get_metrics_client().gauge(
+        "compliance_score", score, labels={"environment": environment}
+    )
+
+
+def track_active_scans(delta: int):
+    value = max(0, ACTIVE_SCANS._value.get() + delta)  # noqa: SLF001 - mirror gauge
+    ACTIVE_SCANS.set(value)
+    get_metrics_client().gauge("active_scans", value)
 
 
 def start_metrics_server(port: int = 9090):

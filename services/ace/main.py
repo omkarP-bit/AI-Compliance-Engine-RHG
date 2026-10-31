@@ -23,13 +23,13 @@ async def _poll_opa_health() -> None:
     A label-less Prometheus gauge exports its default ``0`` immediately, so
     without this loop the dashboard reads DOWN even while OPA is healthy.
     """
-    from ace.metrics.prometheus import OPA_HEALTH
+    from ace.metrics.prometheus import track_opa_health
 
     while True:
         try:
-            OPA_HEALTH.set(1 if await opa.health() else 0)
+            track_opa_health(await opa.health())
         except Exception:  # noqa: BLE001 - a failed probe means "down"
-            OPA_HEALTH.set(0)
+            track_opa_health(False)
         await asyncio.sleep(OPA_HEALTH_INTERVAL_SECONDS)
 
 

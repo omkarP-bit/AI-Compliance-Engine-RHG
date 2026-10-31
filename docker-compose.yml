@@ -45,7 +45,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       OPS_EMAIL_LIST: ${OPS_EMAIL_LIST:-}
-      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000}
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000/d/ace-rhg-overview}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -74,7 +74,7 @@ services:
       REDIS_URL: redis://redis:6379
       RHG_METRICS_PORT: "9091"
       RHG_METRICS_ENABLED: "true"
-      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000}
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000/d/ace-rhg-overview}
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
       SQS_ALERT_QUEUE_URL: https://sqs.ap-south-1.amazonaws.com/123/ace-alerts.fifo
     depends_on:

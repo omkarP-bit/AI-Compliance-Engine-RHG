@@ -11,12 +11,11 @@ from pydantic import BaseModel
 
 from ace.api.websocket import publish_event
 from ace.engine.opa_client import OPAClient
-from ace.metrics.factory import get_metrics_client
 from ace.metrics.prometheus import (
-    ACTIVE_SCANS,
-    COMPLIANCE_SCORE,
-    OPA_HEALTH,
+    track_active_scans,
+    track_compliance_score,
     track_mutation,
+    track_opa_health,
     track_scan,
 )
 from ace.notifier.mutation_notifier import MutationEvent, MutationNotifier
@@ -33,7 +32,6 @@ from ace.scoring.risk_scorer import score_findings
 router = APIRouter(prefix="/ace", tags=["ACE"])
 opa = OPAClient(opa_url=os.environ.get("OPA_URL", "http://localhost:8181"))
 notifier = MutationNotifier()
-_metrics = get_metrics_client()
 _storage = get_storage_backend()
 
 PARSERS = [
@@ -116,11 +114,11 @@ class ScanAndMutateResponse(BaseModel):
 async def scan(request: ScanRequest):
     start = time.time()
     opa_up = await opa.health()
-    OPA_HEALTH.set(1 if opa_up else 0)
+    track_opa_health(opa_up)
     if not opa_up:
         raise HTTPException(503, "OPA policy engine unavailable")
 
-    ACTIVE_SCANS.inc()
+    track_active_scans(1)
     try:
         all_findings = []
         api_scanner = APIFindingsScanner(min_severity=request.api_min_severity or os.getenv("API_MIN_SEVERITY", "INFO"))
@@ -147,9 +145,7 @@ async def scan(request: ScanRequest):
         risk = score_findings(all_findings, request.environment)
         # ``risk.score`` is higher-is-worse; the dashboard's "Compliance score"
         # gauge is higher-is-better, so invert it onto the same 0-10 scale.
-        COMPLIANCE_SCORE.labels(environment=request.environment).set(
-            round(10.0 - risk.score, 2)
-        )
+        track_compliance_score(request.environment, round(10.0 - risk.score, 2))
         backend_scan = {}
         if request.backend_source:
             from ace.backend_scanner.extractor import BackendExtractor
@@ -168,15 +164,6 @@ async def scan(request: ScanRequest):
         duration = time.time() - start
         outcome = "block" if risk.severity.value in ("CRITICAL", "HIGH") else "allow"
         track_scan(request.environment, outcome, duration, all_findings)
-        try:
-            _metrics.increment("scans_total", labels={"environment": request.environment, "outcome": outcome})
-            for f in all_findings:
-                _metrics.increment(
-                    "findings_total",
-                    labels={"severity": f.get("severity") or "UNKNOWN", "rule_id": f.get("rule_id") or "UNKNOWN"},
-                )
-        except Exception:
-            pass
         try:
             _storage.record_activity(
                 ActivityRecord(
@@ -212,7 +199,7 @@ async def scan(request: ScanRequest):
             backend_scan=backend_scan,
         )
     finally:
-        ACTIVE_SCANS.dec()
+        track_active_scans(-1)
 
 
 @router.post("/mutate", response_model=MutateResponse)

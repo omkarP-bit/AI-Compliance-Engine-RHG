@@ -56,7 +56,7 @@ from ace.engine.artifact_codec import (
     policy_path_for,
 )
 from ace.engine.opa_client import OPAClient
-from ace.metrics.prometheus import AGENT_DURATION, track_mutation
+from ace.metrics.prometheus import track_agent_duration, track_mutation
 from ace.mutator.patch_engine import PatchEngine
 
 AGENT_EVENT_CHANNEL = "agentic"
@@ -727,9 +727,12 @@ async def _with_agent_timing(node: str, fn, state: AgentState, *args):
     try:
         return await fn(state, *args)
     finally:
-        AGENT_DURATION.labels(agent_name=_AGENT_FOR_NODE.get(node, node)).observe(
-            time.perf_counter() - started
-        )
+        try:
+            track_agent_duration(
+                _AGENT_FOR_NODE.get(node, node), time.perf_counter() - started
+            )
+        except Exception:  # noqa: BLE001 - metrics must never break the agent loop
+            pass
 
 
 async def _emit(event_type: str, state: AgentState, payload: dict) -> None:

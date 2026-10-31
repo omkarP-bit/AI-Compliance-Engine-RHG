@@ -7,7 +7,7 @@ from typing import Annotated
 
 import httpx
 from ace.alerts.router import AlertPayload, AlertSeverity, build_alert_router
-from ace.metrics.factory import get_metrics_client
+from common.observability import get_report_url
 from common.storage import ActivityRecord, get_storage_backend
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,7 +22,6 @@ gate = GateEvaluator(
 )
 ACE_URL = os.environ.get("ACE_URL", "http://localhost:8000")
 alert_router = build_alert_router()
-_metrics = get_metrics_client()
 _storage = get_storage_backend()
 
 
@@ -361,18 +360,8 @@ async def submit(request: SubmitRequest, ace_client: Annotated[httpx.AsyncClient
         mutations_applied=total_mutations,
     )
 
-    report_url = (
-        f"{os.environ.get('DASHBOARD_URL', 'http://localhost:3000')}"
-        "/d/ace-rhg-overview"
-    )
+    report_url = get_report_url()
 
-    try:
-        _metrics.increment(
-            "gate_decisions_total",
-            labels={"decision": gate_result.decision.value, "environment": request.environment},
-        )
-    except Exception:
-        pass
     try:
         from ace.metrics.prometheus import track_gate_decision
 

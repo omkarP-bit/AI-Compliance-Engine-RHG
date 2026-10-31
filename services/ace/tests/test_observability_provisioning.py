@@ -21,6 +21,8 @@ GRAFANA = OBSERVABILITY / "grafana"
 DATASOURCE_PROVISIONING = GRAFANA / "provisioning" / "datasources" / "prometheus.yml"
 DASHBOARD_PROVISIONING = GRAFANA / "provisioning" / "dashboards" / "dashboards.yml"
 DASHBOARDS_DIR = GRAFANA / "dashboards"
+CLOUD_GRAFANA_DASHBOARD = GRAFANA / "cloud" / "ace-rhg-cloudwatch.json"
+CLOUDWATCH_DASHBOARD = OBSERVABILITY / "cloudwatch" / "ace-rhg-overview.json"
 COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 
 #: Metric names exported by ``ace.metrics.prometheus``.
@@ -145,6 +147,44 @@ class TestDashboardJson:
         # And it must cover both the ACE and RHG surfaces.
         assert "ace_opa_health" in referenced
         assert "rhg_gate_decisions_total" in referenced
+
+
+class TestCloudDashboards:
+    """Cloud observability artifacts (EMF namespace + Grafana Cloud import)."""
+
+    def test_grafana_cloud_dashboard_uses_cloudwatch_datasource(self):
+        data = _load_json(CLOUD_GRAFANA_DASHBOARD)
+        assert data["uid"] == "ace-rhg-cloudwatch"
+        assert data["__inputs"][0]["pluginId"] == "cloudwatch"
+        assert data["panels"]
+        for panel in data["panels"]:
+            for target in panel["targets"]:
+                assert target["namespace"] == "ACE-RHG"
+                assert target["datasource"]["type"] == "cloudwatch"
+                assert target["region"] == "ap-south-1"
+
+    def test_grafana_cloud_dashboard_metrics_exist(self):
+        data = _load_json(CLOUD_GRAFANA_DASHBOARD)
+        referenced = {
+            target["metricName"]
+            for panel in data["panels"]
+            for target in panel["targets"]
+        }
+        assert referenced <= EXPORTED_METRICS
+        assert "ace_opa_health" in referenced
+        assert "rhg_gate_decisions_total" in referenced
+
+    def test_cloudwatch_dashboard_is_valid(self):
+        data = _load_json(CLOUDWATCH_DASHBOARD)
+        assert data["widgets"]
+        for widget in data["widgets"]:
+            assert "type" in widget
+            assert {"x", "y", "width", "height"} <= set(widget)
+
+    def test_cloudwatch_dashboard_queries_the_emf_namespace(self):
+        body = json.dumps(_load_json(CLOUDWATCH_DASHBOARD))
+        for metric in EXPORTED_METRICS:
+            assert metric in body, f"CloudWatch dashboard does not query {metric}"
 
 
 class TestComposeWiring:

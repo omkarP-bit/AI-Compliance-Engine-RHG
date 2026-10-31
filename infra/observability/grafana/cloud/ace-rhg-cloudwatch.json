@@ -1,0 +1,339 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_CLOUDWATCH",
+      "label": "CloudWatch",
+      "description": "AWS CloudWatch data source (region ap-south-1) with read access to the ACE-RHG namespace",
+      "type": "datasource",
+      "pluginId": "cloudwatch",
+      "pluginName": "CloudWatch"
+    }
+  ],
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "10.4.0" },
+    { "type": "datasource", "id": "cloudwatch", "name": "CloudWatch", "version": "1.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" }
+  ],
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Scans by outcome",
+      "description": "ace_scans_total grouped by outcome (Sum per 5 min).",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_scans_total",
+          "dimensions": { "environment": "*", "outcome": "*" },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gate decisions",
+      "description": "rhg_gate_decisions_total grouped by decision.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "rhg_gate_decisions_total",
+          "dimensions": { "decision": "*", "environment": "*" },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "{{decision}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Mutations by outcome",
+      "description": "ace_mutations_total grouped by outcome.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_mutations_total",
+          "dimensions": { "outcome": "*" },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Findings by severity",
+      "description": "ace_findings_total grouped by severity.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 60, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_findings_total",
+          "dimensions": { "severity": "*", "rule_id": "*" },
+          "statistic": "Sum",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "{{severity}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Compliance score (0-10, higher is better)",
+      "description": "ace_compliance_score emitted per environment; inverted risk score.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 10,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_compliance_score",
+          "dimensions": { "environment": "*" },
+          "statistic": "Average",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "{{environment}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "OPA engine health (1 = up)",
+      "description": "ace_opa_health sampled by the scan Lambda.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_opa_health",
+          "dimensions": {},
+          "statistic": "Average",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "OPA"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Scan latency (p95)",
+      "description": "ace_scan_duration_seconds p95.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_scan_duration_seconds",
+          "dimensions": {},
+          "statistic": "p95",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "scan p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Agent latency (p95) by agent",
+      "description": "ace_agent_duration_seconds p95 grouped by agent_name.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_agent_duration_seconds",
+          "dimensions": { "agent_name": "*" },
+          "statistic": "p95",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "{{agent_name}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Active scans (per Lambda container)",
+      "description": "ace_active_scans; Lambda instances are independent, so this is per container.",
+      "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "cloudwatch", "uid": "${DS_CLOUDWATCH}" },
+          "namespace": "ACE-RHG",
+          "metricName": "ace_active_scans",
+          "dimensions": {},
+          "statistic": "Maximum",
+          "period": "300",
+          "region": "ap-south-1",
+          "matchExact": false,
+          "expression": "",
+          "id": "",
+          "alias": "active"
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["ace-rhg", "cloudwatch", "cloud"],
+  "templating": { "list": [] },
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ACE+RHG — Cloud Release Hardening (CloudWatch)",
+  "uid": "ace-rhg-cloudwatch",
+  "version": 1,
+  "weekStart": ""
+}

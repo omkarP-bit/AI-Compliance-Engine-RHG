@@ -1,0 +1,233 @@
+{
+  "widgets": [
+    {
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# ACE + RHG — Cloud Release Hardening\nMetrics emitted by the Lambda functions via CloudWatch EMF (`CLOUDWATCH_NAMESPACE=ACE-RHG`). Local Prometheus/Grafana is not reachable from Lambda, so this dashboard is the cloud-side equivalent."
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 2,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Scans by outcome",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Sum",
+        "metrics": [
+          [
+            {
+              "expression": "SELECT SUM(ace_scans_total) FROM SCHEMA(\"ACE-RHG\", environment, outcome) GROUP BY outcome",
+              "id": "q1"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 2,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Gate decisions",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": true,
+        "period": 300,
+        "stat": "Sum",
+        "metrics": [
+          [
+            {
+              "expression": "SELECT SUM(rhg_gate_decisions_total) FROM SCHEMA(\"ACE-RHG\", decision, environment) GROUP BY decision",
+              "id": "q1"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 2,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Mutations by outcome",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": true,
+        "period": 300,
+        "stat": "Sum",
+        "metrics": [
+          [
+            {
+              "expression": "SELECT SUM(ace_mutations_total) FROM SCHEMA(\"ACE-RHG\", outcome) GROUP BY outcome",
+              "id": "q1"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Findings by severity",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": true,
+        "period": 300,
+        "stat": "Sum",
+        "metrics": [
+          [
+            {
+              "expression": "SELECT SUM(ace_findings_total) FROM SCHEMA(\"ACE-RHG\", severity, rule_id) GROUP BY severity",
+              "id": "q1"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 8,
+      "width": 6,
+      "height": 6,
+      "properties": {
+        "title": "Compliance score (0-10, higher is better)",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Average",
+        "metrics": [
+          [
+            {
+              "expression": "SELECT AVG(ace_compliance_score) FROM SCHEMA(\"ACE-RHG\", environment) GROUP BY environment",
+              "id": "q1"
+            }
+          ]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0,
+            "max": 10
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 18,
+      "y": 8,
+      "width": 6,
+      "height": 6,
+      "properties": {
+        "title": "OPA engine health (1 = up)",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Average",
+        "metrics": [
+          [
+            {
+              "expression": "SELECT AVG(ace_opa_health) FROM SCHEMA(\"ACE-RHG\")",
+              "id": "q1"
+            }
+          ]
+        ],
+        "yAxis": {
+          "left": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 14,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Scan latency (p95)",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "p95",
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('Namespace=\"ACE-RHG\" MetricName=\"ace_scan_duration_seconds\"', 'p95', 300)",
+              "id": "e1"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 8,
+      "y": 14,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Agent latency (p95)",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "p95",
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('Namespace=\"ACE-RHG\" MetricName=\"ace_agent_duration_seconds\"', 'p95', 300)",
+              "id": "e1"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "type": "metric",
+      "x": 16,
+      "y": 14,
+      "width": 8,
+      "height": 6,
+      "properties": {
+        "title": "Active scans (per Lambda container)",
+        "region": "ap-south-1",
+        "view": "timeSeries",
+        "stacked": false,
+        "period": 300,
+        "stat": "Maximum",
+        "metrics": [
+          [
+            {
+              "expression": "SEARCH('Namespace=\"ACE-RHG\" MetricName=\"ace_active_scans\"', 'Maximum', 300)",
+              "id": "e1"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

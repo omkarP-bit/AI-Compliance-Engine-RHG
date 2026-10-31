@@ -544,9 +544,15 @@ The platform supports operational visibility through:
 - **WebSockets:** Live event updates to connected clients.
 - **Prometheus:** Local metrics collection.
 - **Grafana:** Local monitoring dashboards.
-- **CloudWatch EMF:** Cloud metrics.
+- **CloudWatch EMF:** Cloud metrics from the Lambda functions (`ACE-RHG`
+  namespace), viewable in the native CloudWatch dashboard
+  (`ACE-RHG-Overview`) or in Grafana Cloud through the CloudWatch data source.
 - **Slack:** Mutation and operational notifications.
 - **AWS SQS FIFO:** Asynchronous alert dispatch.
+
+The same metric names are used in both environments; see
+[`infra/observability/README.md`](infra/observability/README.md) for the metric
+catalogue, the CloudWatch dashboard deploy command and Grafana Cloud setup.
 
 Important events include scan completion, mutation application, compatibility results, gate decisions, and agent workflow events.
 

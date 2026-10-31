@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 
+from common.observability import get_report_url
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
@@ -143,10 +144,7 @@ async def run_agent(request: AgentRequest) -> AgentResponse:
         for artifact in out.get("patched_artifacts") or []
     ]
 
-    report_url = (
-        f"{os.environ.get('DASHBOARD_URL', 'http://localhost:3000')}"
-        "/d/ace-rhg-overview"
-    )
+    report_url = get_report_url()
 
     return AgentResponse(
         pipeline_id=request.pipeline_id,

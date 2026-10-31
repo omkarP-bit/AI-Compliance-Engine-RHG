@@ -46,7 +46,7 @@ ace:
     AGENT_CONFIDENCE_THRESHOLD: "0.85"
     AGENT_MAX_RETRIES: "3"
     NOTIFY_ON_SEVERITY: CRITICAL,HIGH
-    DASHBOARD_URL: http://localhost:3000
+    DASHBOARD_URL: http://localhost:3000/d/ace-rhg-overview
   resources: {}
 
 rhg:
