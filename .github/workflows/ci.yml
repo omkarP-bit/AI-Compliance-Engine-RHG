@@ -48,7 +48,7 @@ jobs:
         run: pip install "ruff==0.6.9"
 
       - name: Run ruff check
-        run: ruff check services/ cli/
+        run: ruff check services/ace services/rhg cli/
 
   test:
     name: Test
