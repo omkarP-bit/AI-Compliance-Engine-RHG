@@ -402,6 +402,7 @@ Never commit API keys or other secrets to the repository.
 | Helm | YAML templates | CIS Kubernetes |
 | GitHub Actions | Workflow YAML | GitHub Actions Security |
 | Docker Compose | Compose YAML | CIS Docker Compose |
+| Application source (backend scan) | `.py`, `.js`, `.ts`, `.jsx`, `.tsx`, `.go`, `.java`, `.rb`, `.php` | OWASP API Security Top 10 (2023) |
 
 Directory scanning recursively discovers supported artifact files.
 
@@ -420,6 +421,7 @@ ACE uses OPA/Rego policy bundles to evaluate deployment artifacts against securi
 | CIS Terraform Benchmark | Infrastructure configuration and security checks |
 | NIST SP 800-53 Rev. 5 | Least privilege, configuration management, system integrity |
 | GitHub Actions Security | Excessive permissions, mutable action references, unsafe workflow triggers, script injection |
+| OWASP API Security Top 10 (2023) | Broken object/function/property authorization, broken authentication, resource consumption, sensitive flows, SSRF, misconfiguration, inventory management, unsafe third-party API use |
 | Custom Rego policies | Organization-specific compliance requirements |
 
 ---
@@ -480,6 +482,33 @@ Developer / CI/CD
 | CloudWatch EMF | Cloud metrics and monitoring |
 
 The local development environment uses PostgreSQL, while the cloud architecture uses DynamoDB for metadata storage.
+
+OPA policies are baked into the OPA task image (`infra/docker/Dockerfile.opa`). Rebuild/push that image and force a new ECS deployment whenever `policies/` changes:
+
+```bash
+make image-opa IMAGE_REPO=<account>.dkr.ecr.ap-south-1.amazonaws.com/ace-opa-dev IMAGE_TAG=latest
+docker push <account>.dkr.ecr.ap-south-1.amazonaws.com/ace-opa-dev:latest
+aws ecs update-service --cluster ace-opa-dev --service ace-opa-dev \
+  --force-new-deployment --region ap-south-1
+```
+
+Fargate assigns a new public IP to the replacement task. Resolve it from the
+task's ENI and update `OPA_URL` on both Lambda functions (preserving the other
+environment variables), otherwise scans fail with
+`OPA policy engine unavailable`:
+
+```bash
+TASK=$(aws ecs list-tasks --cluster ace-opa-dev --query 'taskArns[0]' --output text)
+ENI=$(aws ecs describe-tasks --cluster ace-opa-dev --tasks "$TASK" \
+  --query 'tasks[0].attachments[0].details[?name==`networkInterfaceId`].value' --output text)
+OPA_IP=$(aws ec2 describe-network-interfaces --network-interface-ids "$ENI" \
+  --query 'NetworkInterfaces[0].Association.PublicIp' --output text)
+echo "OPA_URL=http://$OPA_IP:8181"
+```
+
+For a stable endpoint (recommended for anything beyond a demo), put a Network
+Load Balancer in front of the OPA service and use its DNS name instead of the
+task IP.
 
 The scan Lambda communicates with OPA through the configured `OPA_URL`. OPA runs as a separate ECS Fargate service rather than inside the Lambda container.
 

@@ -18,7 +18,7 @@ HELM_ARGS ?=
 .PHONY: help install test test-ace test-rhg test-cli test-opa coverage \
 	lint format scan build publish-test up down logs rebuild ps \
 	helm-lint helm-template helm-install helm-uninstall image-service \
-	image-lambda clean
+	image-lambda image-opa clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -77,6 +77,9 @@ image-service: ## Build the combined ACE+RHG service image (Helm runtime)
 
 image-lambda: ## Build the AWS Lambda image (linux/amd64)
 	docker build --platform linux/amd64 -f infra/docker/Dockerfile.lambda -t $(IMAGE_REPO)-lambda:$(IMAGE_TAG) .
+
+image-opa: ## Build the OPA policy-server image (linux/amd64)
+	docker build --platform linux/amd64 -f infra/docker/Dockerfile.opa -t $(IMAGE_REPO)-opa:$(IMAGE_TAG) .
 
 # --- Local stack -----------------------------------------------------------
 

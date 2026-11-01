@@ -1,5 +1,5 @@
 {
   "name": "api-security",
-  "version": "1.0.0",
-  "description": "API/OWASP security checks for application source code"
+  "version": "2.0.0",
+  "description": "OWASP API Security Top 10 (2023) structural checks for application source code"
 }

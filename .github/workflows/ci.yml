@@ -106,6 +106,16 @@ jobs:
           PYTHONPATH=${PYTHONPATH:-$GITHUB_WORKSPACE:$GITHUB_WORKSPACE/services:$GITHUB_WORKSPACE/cli} python -m pytest cli/tests/ -v \
              --junitxml=junit-cli.xml
 
+      - name: Install OPA
+        run: |
+          curl -L -o /tmp/opa \
+            https://openpolicyagent.org/downloads/v0.63.0/opa_linux_amd64_static
+          sudo install -m 0755 /tmp/opa /usr/local/bin/opa
+          opa version
+
+      - name: Run OPA policy tests
+        run: opa test policies/ -v
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
