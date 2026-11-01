@@ -344,6 +344,11 @@ Never commit API keys or other secrets to the repository.
 | `ace whoami` | Display active credentials |
 | `ace logout` | Remove saved credentials |
 
+> `create-org`, `add-repo`, `gen-key` and the `ace admin` group write to the
+> server-side storage backend. They need the `common` package from this
+> repository (`PYTHONPATH=services ace gen-key ...`) and are intended for
+> local/dev use; all other commands work from a plain PyPI install.
+
 ### Scanning and release gating
 
 | Command | Description |
